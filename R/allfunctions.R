@@ -840,7 +840,7 @@ filterBootstrap <- function(allDegrees, bootstrap, stability, cut_threshold){
 
 downloadNonCoding <- function(nclink){
   #Just link, or make a input for file as well?
-  gtf.gr <-  rtracklayer::import(nclink, format = "gtf")
+  gtf.gr <-  import(nclink, format = "gtf")
   gtf.df <-  as.data.frame(gtf.gr)
   ncData <- gtf.df[,c("gene_id", "gene_type", "gene_name")]
   ncData$gene_id <- gsub("\\..", "",ncData$gene_id)
@@ -1137,7 +1137,7 @@ selectByVariance <- function(datCounts, top_n_genes = 5000){
 downloadGeneName <- function(link){
   #Just link, or make a input for file as well?
   options(timeout=600)
-  gtf.gr <-  rtracklayer::import(link, format = "gtf")
+  gtf.gr <-  import(link, format = "gtf")
   gtf.df <-  as.data.frame(gtf.gr)
   data <- gtf.df[,c("gene_id", "gene_name")]
   data$gene_id <- gsub("\\..*", "",data$gene_id)
