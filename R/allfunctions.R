@@ -871,7 +871,6 @@ filterData <- function(datCounts, filter_by = "MAD", DEG = FALSE, top_n_genes = 
 
   if(filter_by == "MAD"){
     #Diogo said that is beter to use all the data, and not to filter it by mad
-    #selmad <- as.integer(length(mads)/100)*100 #vou fazer ser multiplo de 100.!!!  # 12296 esse é 0.75 fração do total
     #Here, we are going to filter by mad the top transcripts, should be multiple of 100
     #Order by mad and filter by selmad ############################################
     dat <- selectByVariance(datCounts, top_n_genes = 5000)
@@ -1309,7 +1308,7 @@ stackedBarplot <- function(summdf, datExpr, traits, filename){
     guides(fill=guide_legend(title=""), x =  guide_axis(angle = 90)) + #"Gene Type"
     geom_point(aes(y = correlationPos), shape = 19, size = 3) +
     geom_point(aes(y = correlationNeg), shape = 1, size = 3) +
-    scale_y_continuous(sec.axis = sec_axis(~./max(gplot_df$nGenes), name = "Trait-Module Correlation (● Positive, ○ Negative)\n", )) +
+    scale_y_continuous(sec.axis = sec_axis(~./max(gplot_df$nGenes), name = "Trait-Module Correlation (full dot Positive, empty dot Negative)\n", )) +
     ggtitle("Transcript Type per Module and Trait-Module Correlation\n", ) +
     theme_classic() +
     theme(legend.position = "none", text = element_text(size=20),
