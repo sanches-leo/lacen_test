@@ -14,6 +14,14 @@
 #' @export
 #'
 #' @examples
+#' summList <- summarizeAndEnrichModules(annotationData,
+#' datExpr,
+#' indicePower,
+#' traits,
+#' cutBootstrap,
+#' bootstrapStability = FALSE,
+#' maxBlockSize = maxBlockSize)
+
 summarizeAndEnrichModules <- function(annotationData, datExpr, indicePower, traits, cutBootstrap, bootstrapStability, maxBlockSize = 10000){
 
   if(isFALSE(bootstrapStability)){
