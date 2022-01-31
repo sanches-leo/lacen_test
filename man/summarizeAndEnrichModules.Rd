@@ -35,12 +35,3 @@ a list with 1- summarized data table, 2- Enriched data list, 3- Topological over
 \description{
 Summarize all data in a list, make the network and do the enrichment analysis
 }
-\examples{
-summList <- summarizeAndEnrichModules(annotationData,
-datExpr,
-indicePower,
-traits,
-cutBootstrap,
-bootstrapStability = FALSE,
-maxBlockSize = maxBlockSize)
-}
