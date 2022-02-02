@@ -9,7 +9,8 @@ summarizeAndEnrichModules <- function(annotationData, datExpr, indicePower, trai
     return(TOM)
   }
 
-
+  #Set some variable as null to have binding and avoid check errors
+  ncGeneNames <- datExpression <- NULL
 
   if(isFALSE(bootstrapStability)){
     bootstrapStability <- data.frame(rep(100, ncol(datExpr)), row.names = colnames(datExpr))
@@ -1227,6 +1228,9 @@ stackedBarplot <- function(summdf, datExpr, traits, filename){
   #genesToSel, non coding data file ncdata
   #and the trait vector y, and returns a barplot figure,
   #correlating the eingengene modules with the trait
+
+  #Set some variable as null to have binding and avoid check errors
+  Module <- nGenes <- moduleClasses <- correlationPos <- correlationNeg <- NULL
 
   #Prepare genesToSel
   genesToSel <- summdf[summdf$cutBootstrap, c("module", "gene_id")]
