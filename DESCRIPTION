@@ -20,4 +20,8 @@ Imports:
     org.Hs.eg.db,
     rrvgo,
     rtracklayer,
-    WGCNA
+    WGCNA,
+    fastcluster,
+    grDevices,
+    stats
+    
