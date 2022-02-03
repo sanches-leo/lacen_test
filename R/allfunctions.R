@@ -1,3 +1,5 @@
+#' This function prepares the co-expression network, performs the module enrichment analysis and summarize all the data in a list.
+#'
 summarizeAndEnrichModules <- function(annotationData, datExpr, indicePower, traits, cutBootstrap, bootstrapStability, maxBlockSize = 10000){
 
   TOMmodules <- function(datExpr, indicePower, summdf){
@@ -54,17 +56,78 @@ summarizeAndEnrichModules <- function(annotationData, datExpr, indicePower, trai
 }
 
 
+#' This function filters the expression data (TPM or FPKM), by MAD or DEG, then it applies voom transformation using limma package.
+#'
 filterTransform <- function(datExpression, datCounts){
+  filterDEG <- function(datExpression, padj_thrshold = 0.01, FC_threshold = 1){
+    #This function finds the SD that correspond to 99% of DEGs, filtering
+    #the data by this SD value.
+    padj <- datExpression$padj.1 < 0.01 & !is.na(datExpression$padj.1)
+    logFC <- abs(datExpression$log2FoldChange.1) > 1 & !is.na(abs(datExpression$log2FoldChange.1))
+    DEG <- datExpression[padj & logFC,]
+    return(DEG)
+  }
+
+  selectByVariance <- function(datCounts, top_n_genes = 5000){
+    #If there is no DEG avaiable, the user can filter the data by MAD,
+    #Selecting the top variance genes (top_n_genes)
+    mads <- apply(as.matrix(datCounts[,2:ncol(datCounts)]), 1, stats::mad)
+    dat <- datCounts[rev(order(mads))[1:top_n_genes], ]
+    return(dat)
+  }
+
+  filterCountsByDegSD <- function(datCounts, differentialExpression){
+    datCounts_SD <- apply(datCounts, 1, function(x) stats::sd(x[-c(1)]))
+    datCounts$SD <- datCounts_SD
+    DEG2 <- differentialExpression[,c("Transcript_ID", "log2FoldChange.1")]
+    DEG2$SD <- datCounts[datCounts$Transcript_ID %in% DEG2$Transcript_ID, "SD"]
+    top99SD <- sort(DEG2$SD)[round(0.01*length(DEG2$SD))]
+    print(paste("All", sum(datCounts$SD < top99SD),"transcripts with SD less than", top99SD, "will be removed"))
+    print(paste(nrow(datCounts) - sum(datCounts$SD < top99SD), "transcripts remains"))
+    return(datCounts[datCounts$SD > top99SD, -c(ncol(datCounts))])
+  }
+
+  filterData <- function(datCounts, filter_by = "MAD", DEG = FALSE, top_n_genes = 5000){
+
+    # if("conditions to error"){
+    #   stop("error message")
+    # }
+    #filter low count transcripts
+    #Only genes detected by at least one read count per million in at least a quarter of the samples were considered.
+    npass <- ceiling((ncol(datCounts) - 1)/4)
+    failed <- apply(datCounts[,-c(1)], 1, function(x) sum(x > 1) > npass)
+    datCounts <- datCounts[failed,]
+
+
+    if(filter_by == "MAD"){
+      #Diogo said that is beter to use all the data, and not to filter it by mad
+      #Here, we are going to filter by mad the top transcripts, should be multiple of 100
+      #Order by mad and filter by selmad ############################################
+      dat <- selectByVariance(datCounts, top_n_genes = 5000)
+    } else if(filter_by == "DEG"){
+      #Filter the aproved transcripts ############################################
+      #We suggest removing features whose counts are consistently low (for example, removing all features that have a count of less than say 10 in more than 90% of the samples) because such low-expressed features tend to reflect noise and correlations based on counts that are mostly zero aren't really meaningful. The actual thresholds should be based on experimental design, sequencing depth and sample counts.
+      #In this case, the filter selects the SD to maintain 99% of the differentially expressed genes
+      dat <- filterCountsByDegSD(datCounts, DEG)
+    }
+    #Names of dat in the rownames, not at the column
+    rownames(dat) <- dat$Transcript_ID
+    dat$Transcript_ID <- NULL
+    # We transpose the data so that the rows correspond to samples and the columns correspond to genes
+    return(dat)
+  }
+
   differentialExpression <- filterDEG(datExpression)
   datExpr <- filterData(datCounts, filter_by="DEG", DEG=differentialExpression)
 
-  #logtransform datExpr using rlog function4
+  #logtransform datExpr using rlog function
   datExpr <- limma::voom(t(datExpr))$E
   datExpr <- data.matrix(datExpr, rownames.force=TRUE)
   return(datExpr)
 }
 
-
+#' This function plots the samples cluster Tree, helping to find the height value to exclude outiler samples. When height is provided, the function will return a vector of samples to keep.
+#'
 cutOutlierSample <- function(data, trait, filename, height=FALSE){
   if(isFALSE(height)){
     grDevices::png(filename=filename)
@@ -83,7 +146,8 @@ cutOutlierSample <- function(data, trait, filename, height=FALSE){
   }
 }
 
-
+#' This function generates a heatmap of top connected lncRNAs and protein coding genes of a specific submodule.
+#'
 heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM, datExpr,filename, traits, summList, ...){
   dataToColor <- function(x,summdf, module, logDEG = FALSE, mod){
     #The function takes a named vector(gene_ID) to connectivity (logDEG = FALSE) or
@@ -777,13 +841,11 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
   grDevices::dev.off()
 }
 
-
+#' This function converts the geneIDs data to gene names
+#'
 geneIDtoGeneName <- function(allDegreesBootstrap, differentialExpression, ncData){
   #This function takes the alldegres, deg, and ncData, and returns a list of
   #dataframes with gene names
-
-  #TODO: Redo all of this to return a single two-column dataframe, with all
-  #geneIDs and genenames. Maybe apply it to summdf?
 
   allgenes <- unique(allDegreesBootstrap$gene_id, differentialExpression$Transcript_ID)
   coding <- setdiff(allgenes, ncData$gene_id)
@@ -804,7 +866,8 @@ geneIDtoGeneName <- function(allDegreesBootstrap, differentialExpression, ncData
   return(summlist)
 }
 
-
+#' This function removes low stability genes found in the bootstrap based on the cut threshold
+#'
 filterBootstrap <- function(allDegrees, bootstrap, stability, cut_threshold){
   modsktot <- allDegrees
   modsktot$color <- unlist(bootstrap[1,])
@@ -816,7 +879,8 @@ filterBootstrap <- function(allDegrees, bootstrap, stability, cut_threshold){
   return(modsktot)
 }
 
-
+#' This function downloads a gtf table of non coding genes annotation, using a link provided by the user
+#'
 downloadNonCoding <- function(nclink){
   #Just link, or make a input for file as well?
   gtf.gr <-  rtracklayer::import(nclink, format = "gtf")
@@ -828,7 +892,8 @@ downloadNonCoding <- function(nclink){
   return(ncData)
 }
 
-
+#' This function generates a image to help the user to select a beta-value that transform the network in a scale-free network
+#'
 pickSoftThresholdPlot <- function(datExpr, filename, blocksize = 10000){
   # if(ncol(datExpr) < 40000){
   #   blocksize <- ncol(datExpr) + 1000
@@ -860,56 +925,7 @@ pickSoftThresholdPlot <- function(datExpr, filename, blocksize = 10000){
 
 }
 
-
-filterData <- function(datCounts, filter_by = "MAD", DEG = FALSE, top_n_genes = 5000){
-  selectByVariance <- function(datCounts, top_n_genes = 5000){
-    #If there is no DEG avaiable, the user can filter the data by MAD,
-    #Selecting the top variance genes (top_n_genes)
-    mads <- apply(as.matrix(datCounts[,2:ncol(datCounts)]), 1, stats::mad)
-    dat <- datCounts[rev(order(mads))[1:top_n_genes], ]
-    return(dat)
-  }
-
-  filterCountsByDegSD <- function(datCounts, differentialExpression){
-    datCounts_SD <- apply(datCounts, 1, function(x) stats::sd(x[-c(1)]))
-    datCounts$SD <- datCounts_SD
-    DEG2 <- differentialExpression[,c("Transcript_ID", "log2FoldChange.1")]
-    DEG2$SD <- datCounts[datCounts$Transcript_ID %in% DEG2$Transcript_ID, "SD"]
-    top99SD <- sort(DEG2$SD)[round(0.01*length(DEG2$SD))]
-    print(paste("All", sum(datCounts$SD < top99SD),"transcripts with SD less than", top99SD, "will be removed"))
-    print(paste(nrow(datCounts) - sum(datCounts$SD < top99SD), "transcripts remains"))
-    return(datCounts[datCounts$SD > top99SD, -c(ncol(datCounts))])
-  }
-
-  # if("conditions to error"){
-  #   stop("error message")
-  # }
-  #filter low count transcripts
-  #Only genes detected by at least one read count per million in at least a quarter of the samples were considered.
-  npass <- ceiling((ncol(datCounts) - 1)/4)
-  failed <- apply(datCounts[,-c(1)], 1, function(x) sum(x > 1) > npass)
-  datCounts <- datCounts[failed,]
-
-
-  if(filter_by == "MAD"){
-    #Diogo said that is beter to use all the data, and not to filter it by mad
-    #Here, we are going to filter by mad the top transcripts, should be multiple of 100
-    #Order by mad and filter by selmad ############################################
-    dat <- selectByVariance(datCounts, top_n_genes = 5000)
-  } else if(filter_by == "DEG"){
-    #Filter the aproved transcripts ############################################
-    #We suggest removing features whose counts are consistently low (for example, removing all features that have a count of less than say 10 in more than 90% of the samples) because such low-expressed features tend to reflect noise and correlations based on counts that are mostly zero aren't really meaningful. The actual thresholds should be based on experimental design, sequencing depth and sample counts.
-    #In this case, the filter selects the SD to maintain 99% of the differentially expressed genes
-    dat <- filterCountsByDegSD(datCounts, DEG)
-  }
-  #Names of dat in the rownames, not at the column
-  rownames(dat) <- dat$Transcript_ID
-  dat$Transcript_ID <- NULL
-  # We transpose the data so that the rows correspond to samples and the columns correspond to genes
-  return(dat)
-}
-
-
+#Remove it? What it does?
 prepareBootstrap <- function(number_of_iterations, datExpr, indicePower){
   bootstrap = as.data.frame(matrix(data = NA, nrow = number_of_iterations, ncol = ncol(datExpr))) #LEO: This makes 2 lines of NAs, is it need to remove it?
   colnames(bootstrap) = colnames(datExpr)
@@ -932,7 +948,8 @@ prepareBootstrap <- function(number_of_iterations, datExpr, indicePower){
   return(bootstrap)
 }
 
-
+#' This function repeats the network step, removing 1% of the genes in each iteration. Test genes stability.
+#'
 makeBootstrap <- function(number_of_iterations, datExpr, indicePower, maxBlockSize = 10000){
   bootstrap = as.data.frame(matrix(data = NA, nrow = number_of_iterations, ncol = ncol(datExpr)))
   colnames(bootstrap) = colnames(datExpr)
@@ -965,7 +982,7 @@ makeBootstrap <- function(number_of_iterations, datExpr, indicePower, maxBlockSi
   return(bootstrap)
 }
 
-
+#Do I need to remake this one? It considers the iteration of module stability?
 stabilityRatioPlot <- function(modGroups, bootstrap, filename){
   names <- colnames(bootstrap)
   sigs <- c() #change to stability ratio, or something like that
@@ -994,7 +1011,8 @@ stabilityRatioPlot <- function(modGroups, bootstrap, filename){
   return(sigs)
 }
 
-
+#' This function calculates the stability ratio of each gene, and return a graphic of it
+#'
 moduleStability <- function(bootstrap, filename){ #This function takes the bootstrap table as input
   #and gives as output a list indicating the module composition maintaince between the bootstraps cycles
   #as shown in the boxplot generated
@@ -1057,7 +1075,8 @@ moduleStability <- function(bootstrap, filename){ #This function takes the boots
   return(modGroups)
 }
 
-
+#' This function does the reduction of the module enrichment, and returns a figure
+#'
 saveEnrichedGraph <- function(rrvgolist, summdf, datExpr, traits, filename){
   genesToSel <- summdf[summdf$cutBootstrap, c("module", "gene_id")]
   datExprBoots <- datExpr[, colnames(datExpr) %in% genesToSel$gene_id]
@@ -1100,17 +1119,8 @@ saveEnrichedGraph <- function(rrvgolist, summdf, datExpr, traits, filename){
   grDevices::dev.off()
 }
 
-
-filterDEG <- function(datExpression, padj_thrshold = 0.01, FC_threshold = 1){
-  #This function finds the SD that correspond to 99% of DEGs, filtering
-  #the data by this SD value.
-  padj <- datExpression$padj.1 < 0.01 & !is.na(datExpression$padj.1)
-  logFC <- abs(datExpression$log2FoldChange.1) > 1 & !is.na(abs(datExpression$log2FoldChange.1))
-  DEG <- datExpression[padj & logFC,]
-  return(DEG)
-}
-
-
+#' This function downloads a gtf table of some genome annotation, using a URL link provided by the user
+#'
 downloadGeneName <- function(link){
   #Just link, or make a input for file as well?
   options(timeout=600)
@@ -1123,7 +1133,8 @@ downloadGeneName <- function(link){
   return(data)
 }
 
-
+#' This function takes several informations and summarizes it in a dataframe
+#'
 summarizeData <- function(allDegrees, modules, bootstrapStability, cutBootstrap, ncGeneNames, cGeneNames, datExpression){
   #The function takes all the data and reduces it to a single data frame
 
@@ -1157,7 +1168,8 @@ summarizeData <- function(allDegrees, modules, bootstrapStability, cutBootstrap,
   return(summdf)
 }
 
-
+#' This function adds the reduced enrichment analysis to a summarized dataframe
+#'
 summarizeSubmodules <- function(summdf, rrvgolist, listgprof){
   #submodules
   ncluster <- 0
@@ -1189,7 +1201,8 @@ summarizeSubmodules <- function(summdf, rrvgolist, listgprof){
   return(summdf)
 }
 
-
+#' This function does the gprofiler enrichment analysis over each module
+#'
 enrichList <- function(summdf){
   #The function takes the connectivity dataframe(allDegreesBootstrap) and
   #the background genes, do the gprofiler enrichment analysis for each module
@@ -1221,7 +1234,8 @@ enrichList <- function(summdf){
   return(listgprof)
 }
 
-
+#' This function returns a barplot correlating the eingengene modules with the trait studied
+#'
 stackedBarplot <- function(summdf, datExpr, traits, filename){
 
   #This function takes the count dataset datExpr, the connectivity matrix
@@ -1324,7 +1338,8 @@ stackedBarplot <- function(summdf, datExpr, traits, filename){
   grDevices::dev.off()
 }
 
-
+#' This function performs the rrvgo enrichment summarization of the module enrichment analysis
+#'
 reduceEnrichment <- function(listgprof, summdf, datExpr, indicePower){
   #The function takes a list of gprofiler dataframe, and applies rrvgo functions
   #to cluster the ontologies and make it simpler to analyse. It returns a list
