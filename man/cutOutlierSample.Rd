@@ -6,6 +6,15 @@
 \usage{
 cutOutlierSample(data, trait, filename, height = FALSE)
 }
+\arguments{
+\item{data}{datEcpr}
+
+\item{trait}{tumor/non-tumor}
+
+\item{filename}{filename}
+
+\item{height}{threshold to cut outliers on the tree}
+}
 \description{
 This function plots the samples cluster Tree, helping to find the height value to exclude outiler samples. When height is provided, the function will return a vector of samples to keep.
 }

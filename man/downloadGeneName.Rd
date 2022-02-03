@@ -6,6 +6,9 @@
 \usage{
 downloadGeneName(link)
 }
+\arguments{
+\item{link}{URL link of an annotation gtf table}
+}
 \description{
 This function downloads a gtf table of some genome annotation, using a URL link provided by the user
 }

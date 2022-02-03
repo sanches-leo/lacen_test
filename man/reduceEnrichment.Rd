@@ -6,6 +6,15 @@
 \usage{
 reduceEnrichment(listgprof, summdf, datExpr, indicePower)
 }
+\arguments{
+\item{listgprof}{enriched table}
+
+\item{summdf}{summarized table}
+
+\item{datExpr}{count data}
+
+\item{indicePower}{beta-value}
+}
 \description{
 This function performs the rrvgo enrichment summarization of the module enrichment analysis
 }

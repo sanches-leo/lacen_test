@@ -6,6 +6,17 @@
 \usage{
 saveEnrichedGraph(rrvgolist, summdf, datExpr, traits, filename)
 }
+\arguments{
+\item{rrvgolist}{enrichment summarized table}
+
+\item{summdf}{summarized table}
+
+\item{datExpr}{count data}
+
+\item{traits}{tumor/non-tumor}
+
+\item{filename}{file name}
+}
 \description{
 This function does the reduction of the module enrichment, and returns a figure
 }

@@ -6,6 +6,13 @@
 \usage{
 summarizeSubmodules(summdf, rrvgolist, listgprof)
 }
+\arguments{
+\item{summdf}{summarized table}
+
+\item{rrvgolist}{enrichment summarized table}
+
+\item{listgprof}{enriched table}
+}
 \description{
 This function adds the reduced enrichment analysis to a summarized dataframe
 }

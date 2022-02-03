@@ -6,6 +6,13 @@
 \usage{
 geneIDtoGeneName(allDegreesBootstrap, differentialExpression, ncData)
 }
+\arguments{
+\item{allDegreesBootstrap}{bootstrap selected alldegree table}
+
+\item{differentialExpression}{filtered DE genes}
+
+\item{ncData}{non-coding annotation}
+}
 \description{
 This function converts the geneIDs data to gene names
 }

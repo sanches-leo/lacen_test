@@ -6,6 +6,15 @@
 \usage{
 stackedBarplot(summdf, datExpr, traits, filename)
 }
+\arguments{
+\item{summdf}{summarized table}
+
+\item{datExpr}{TPM data}
+
+\item{traits}{tumor/non-tumor}
+
+\item{filename}{file name}
+}
 \description{
 This function returns a barplot correlating the eingengene modules with the trait studied
 }

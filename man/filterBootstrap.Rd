@@ -6,6 +6,15 @@
 \usage{
 filterBootstrap(allDegrees, bootstrap, stability, cut_threshold)
 }
+\arguments{
+\item{allDegrees}{connectivity table}
+
+\item{bootstrap}{bootrastp table}
+
+\item{stability}{stability table}
+
+\item{cut_threshold}{threshold to remove module low stability genes}
+}
 \description{
 This function removes low stability genes found in the bootstrap based on the cut threshold
 }

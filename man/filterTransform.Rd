@@ -6,6 +6,11 @@
 \usage{
 filterTransform(datExpression, datCounts)
 }
+\arguments{
+\item{datExpression}{DEG data}
+
+\item{datCounts}{count data}
+}
 \description{
 This function filters the expression data (TPM or FPKM), by MAD or DEG, then it applies voom transformation using limma package.
 }

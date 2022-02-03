@@ -6,6 +6,13 @@
 \usage{
 pickSoftThresholdPlot(datExpr, filename, blocksize = 10000)
 }
+\arguments{
+\item{datExpr}{count data}
+
+\item{filename}{filename}
+
+\item{blocksize}{wgcna parameter}
+}
 \description{
 This function generates a image to help the user to select a beta-value that transform the network in a scale-free network
 }

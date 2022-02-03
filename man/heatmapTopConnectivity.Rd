@@ -16,6 +16,25 @@ heatmapTopConnectivity(
   ...
 )
 }
+\arguments{
+\item{module}{module number}
+
+\item{submodule}{submodule number}
+
+\item{number_lnc_pc}{show only top c(number-nc-genes, number-pc-genes), or FALSE to show ALL}
+
+\item{TOM}{topological overlap table}
+
+\item{datExpr}{filtered count data}
+
+\item{filename}{filename}
+
+\item{traits}{tumor/non-tumor}
+
+\item{summList}{summary list table}
+
+\item{...}{others}
+}
 \description{
 This function generates a heatmap of top connected lncRNAs and protein coding genes of a specific submodule.
 }

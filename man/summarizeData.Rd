@@ -14,6 +14,21 @@ summarizeData(
   datExpression
 )
 }
+\arguments{
+\item{allDegrees}{connectivity}
+
+\item{modules}{gene modules}
+
+\item{bootstrapStability}{module stability genes}
+
+\item{cutBootstrap}{filter module stability genes}
+
+\item{ncGeneNames}{annotation non coding}
+
+\item{cGeneNames}{annotation coding}
+
+\item{datExpression}{DEG data}
+}
 \description{
 This function takes several informations and summarizes it in a dataframe
 }

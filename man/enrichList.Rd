@@ -6,6 +6,9 @@
 \usage{
 enrichList(summdf)
 }
+\arguments{
+\item{summdf}{summarized table}
+}
 \description{
 This function does the gprofiler enrichment analysis over each module
 }

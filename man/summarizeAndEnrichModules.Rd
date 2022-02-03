@@ -14,6 +14,21 @@ summarizeAndEnrichModules(
   maxBlockSize = 10000
 )
 }
+\arguments{
+\item{annotationData}{gene annotation}
+
+\item{datExpr}{dat expression tpm/fpkm}
+
+\item{indicePower}{free scale topology beta-value}
+
+\item{traits}{tumor/non-tumor}
+
+\item{cutBootstrap}{threshhold gene stability in modules}
+
+\item{bootstrapStability}{gene stability table}
+
+\item{maxBlockSize}{wgcna parameter, bigger to faster computers}
+}
 \description{
 This function prepares the co-expression network, performs the module enrichment analysis and summarize all the data in a list.
 }

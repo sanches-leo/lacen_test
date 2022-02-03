@@ -6,6 +6,11 @@
 \usage{
 moduleStability(bootstrap, filename)
 }
+\arguments{
+\item{bootstrap}{bootstrap table}
+
+\item{filename}{filename}
+}
 \description{
 This function calculates the stability ratio of each gene, and return a graphic of it
 }
