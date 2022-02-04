@@ -6,6 +6,8 @@
 \usage{
 summarizeAndEnrichModules(
   annotationData,
+  datExpression,
+  ncGeneNames,
   datExpr,
   indicePower,
   traits,
@@ -16,6 +18,10 @@ summarizeAndEnrichModules(
 }
 \arguments{
 \item{annotationData}{gene annotation}
+
+\item{datExpression}{DEG information}
+
+\item{ncGeneNames}{non coding annotation}
 
 \item{datExpr}{dat expression tpm/fpkm}
 

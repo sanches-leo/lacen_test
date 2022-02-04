@@ -10,6 +10,8 @@ Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.1.2
 biocViews:
+Depends:
+    WGCNA
 Imports:
     cluster,
     ggplot2,
@@ -20,7 +22,6 @@ Imports:
     org.Hs.eg.db,
     rrvgo,
     rtracklayer,
-    WGCNA,
     fastcluster,
     grDevices,
     stats

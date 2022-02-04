@@ -6,8 +6,20 @@
 #' @param traits tumor/non-tumor
 #' @param cutBootstrap threshhold gene stability in modules
 #' @param bootstrapStability gene stability table
+#' @param datExpression DEG information
+#' @param ncGeneNames non coding annotation
 #' @param maxBlockSize wgcna parameter, bigger to faster computers
-summarizeAndEnrichModules <- function(annotationData, datExpr, indicePower, traits, cutBootstrap, bootstrapStability, maxBlockSize = 10000){
+#'
+#' @export
+summarizeAndEnrichModules <- function(annotationData,
+                                      datExpression,
+                                      ncGeneNames,
+                                      datExpr,
+                                      indicePower,
+                                      traits,
+                                      cutBootstrap,
+                                      bootstrapStability,
+                                      maxBlockSize = 10000){
 
   TOMmodules <- function(datExpr, indicePower, summdf){
     #10 - Heatmap
@@ -67,6 +79,7 @@ summarizeAndEnrichModules <- function(annotationData, datExpr, indicePower, trai
 #'
 #' @param datExpression DEG data
 #' @param datCounts count data
+#' @export
 filterTransform <- function(datExpression, datCounts){
   filterDEG <- function(datExpression, padj_thrshold = 0.01, FC_threshold = 1){
     #This function finds the SD that correspond to 99% of DEGs, filtering
@@ -141,6 +154,7 @@ filterTransform <- function(datExpression, datCounts){
 #' @param trait tumor/non-tumor
 #' @param filename filename
 #' @param height threshold to cut outliers on the tree
+#' @export
 cutOutlierSample <- function(data, trait, filename, height=FALSE){
   if(isFALSE(height)){
     grDevices::png(filename=filename)
@@ -170,6 +184,7 @@ cutOutlierSample <- function(data, trait, filename, height=FALSE){
 #' @param traits tumor/non-tumor
 #' @param summList summary list table
 #' @param ... others
+#' @export
 heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM, datExpr,filename, traits, summList, ...){
   dataToColor <- function(x,summdf, module, logDEG = FALSE, mod){
     #The function takes a named vector(gene_ID) to connectivity (logDEG = FALSE) or
@@ -868,6 +883,7 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
 #' @param allDegreesBootstrap bootstrap selected alldegree table
 #' @param differentialExpression filtered DE genes
 #' @param ncData non-coding annotation
+#' @export
 geneIDtoGeneName <- function(allDegreesBootstrap, differentialExpression, ncData){
   #This function takes the alldegres, deg, and ncData, and returns a list of
   #dataframes with gene names
@@ -897,6 +913,7 @@ geneIDtoGeneName <- function(allDegreesBootstrap, differentialExpression, ncData
 #' @param bootstrap bootrastp table
 #' @param stability stability table
 #' @param cut_threshold threshold to remove module low stability genes
+#' @export
 filterBootstrap <- function(allDegrees, bootstrap, stability, cut_threshold){
   modsktot <- allDegrees
   modsktot$color <- unlist(bootstrap[1,])
@@ -911,6 +928,7 @@ filterBootstrap <- function(allDegrees, bootstrap, stability, cut_threshold){
 #' This function downloads a gtf table of non coding genes annotation, using a link provided by the user
 #'
 #' @param nclink URL link of an annotation gtf table
+#' @export
 downloadNonCoding <- function(nclink){
   #Just link, or make a input for file as well?
   gtf.gr <-  rtracklayer::import(nclink, format = "gtf")
@@ -927,6 +945,7 @@ downloadNonCoding <- function(nclink){
 #' @param datExpr count data
 #' @param filename filename
 #' @param blocksize wgcna parameter
+#' @export
 pickSoftThresholdPlot <- function(datExpr, filename, blocksize = 10000){
   # if(ncol(datExpr) < 40000){
   #   blocksize <- ncol(datExpr) + 1000
@@ -987,6 +1006,7 @@ prepareBootstrap <- function(number_of_iterations, datExpr, indicePower){
 #' @param datExpr count data
 #' @param indicePower beta value
 #' @param maxBlockSize wgcna par
+#' @export
 makeBootstrap <- function(number_of_iterations, datExpr, indicePower, maxBlockSize = 10000){
   bootstrap = as.data.frame(matrix(data = NA, nrow = number_of_iterations, ncol = ncol(datExpr)))
   colnames(bootstrap) = colnames(datExpr)
@@ -1052,6 +1072,7 @@ stabilityRatioPlot <- function(modGroups, bootstrap, filename){
 #'
 #' @param bootstrap bootstrap table
 #' @param filename filename
+#' @export
 moduleStability <- function(bootstrap, filename){ #This function takes the bootstrap table as input
   #and gives as output a list indicating the module composition maintaince between the bootstraps cycles
   #as shown in the boxplot generated
@@ -1121,6 +1142,7 @@ moduleStability <- function(bootstrap, filename){ #This function takes the boots
 #' @param datExpr count data
 #' @param traits tumor/non-tumor
 #' @param filename file name
+#' @export
 saveEnrichedGraph <- function(rrvgolist, summdf, datExpr, traits, filename){
   genesToSel <- summdf[summdf$cutBootstrap, c("module", "gene_id")]
   datExprBoots <- datExpr[, colnames(datExpr) %in% genesToSel$gene_id]
@@ -1166,6 +1188,7 @@ saveEnrichedGraph <- function(rrvgolist, summdf, datExpr, traits, filename){
 #' This function downloads a gtf table of some genome annotation, using a URL link provided by the user
 #'
 #' @param link URL link of an annotation gtf table
+#' @export
 downloadGeneName <- function(link){
   #Just link, or make a input for file as well?
   options(timeout=600)
@@ -1187,6 +1210,7 @@ downloadGeneName <- function(link){
 #' @param ncGeneNames annotation non coding
 #' @param cGeneNames annotation coding
 #' @param datExpression DEG data
+#' @export
 summarizeData <- function(allDegrees, modules, bootstrapStability, cutBootstrap, ncGeneNames, cGeneNames, datExpression){
   #The function takes all the data and reduces it to a single data frame
 
@@ -1225,6 +1249,7 @@ summarizeData <- function(allDegrees, modules, bootstrapStability, cutBootstrap,
 #' @param summdf summarized table
 #' @param rrvgolist enrichment summarized table
 #' @param listgprof enriched table
+#' @export
 summarizeSubmodules <- function(summdf, rrvgolist, listgprof){
   #submodules
   ncluster <- 0
@@ -1259,6 +1284,7 @@ summarizeSubmodules <- function(summdf, rrvgolist, listgprof){
 #' This function does the gprofiler enrichment analysis over each module
 #'
 #' @param summdf summarized table
+#' @export
 enrichList <- function(summdf){
   #The function takes the connectivity dataframe(allDegreesBootstrap) and
   #the background genes, do the gprofiler enrichment analysis for each module
@@ -1296,6 +1322,7 @@ enrichList <- function(summdf){
 #' @param datExpr TPM data
 #' @param traits tumor/non-tumor
 #' @param filename file name
+#' @export
 stackedBarplot <- function(summdf, datExpr, traits, filename){
 
   #This function takes the count dataset datExpr, the connectivity matrix
@@ -1404,6 +1431,7 @@ stackedBarplot <- function(summdf, datExpr, traits, filename){
 #' @param summdf summarized table
 #' @param datExpr count data
 #' @param indicePower beta-value
+#' @export
 reduceEnrichment <- function(listgprof, summdf, datExpr, indicePower){
   #The function takes a list of gprofiler dataframe, and applies rrvgo functions
   #to cluster the ontologies and make it simpler to analyse. It returns a list
