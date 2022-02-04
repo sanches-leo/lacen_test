@@ -30,8 +30,6 @@ summarizeAndEnrichModules <- function(annotationData,
     return(TOM)
   }
 
-  #Set some variable as null to have binding and avoid check errors
-  ncGeneNames <- datExpression <- NULL
 
   if(isFALSE(bootstrapStability)){
     bootstrapStability <- data.frame(rep(100, ncol(datExpr)), row.names = colnames(datExpr))

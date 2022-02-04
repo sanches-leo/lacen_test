@@ -1,6 +1,6 @@
 Package: lacen
 Title: lncRNA Annotation Co-Expression Network tool
-Version: 0.0.0.9000
+Version: 0.0.1.000
 Authors@R: 
     person("Leonardo", "Sanches", , "first.last@example.com", role = c("aut", "cre"),
            comment = c(ORCID = "YOUR-ORCID-ID"))
