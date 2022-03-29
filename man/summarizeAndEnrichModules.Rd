@@ -11,9 +11,22 @@ summarizeAndEnrichModules(
   datExpr,
   indicePower,
   traits,
-  cutBootstrap,
-  bootstrapStability,
-  maxBlockSize = 10000
+  cutBootstrap = FALSE,
+  bootstrapStability = FALSE,
+  maxBlockSize = maxBlockSize,
+  TOMType = "unsigned",
+  minModuleSize = 30,
+  reassignThreshold = 0,
+  mergeCutHeight = 0.3,
+  pamRespectsDendro = FALSE,
+  corType = "bicor",
+  user_threshold = 0.05,
+  ontology = "BP",
+  organism = "hsapiens",
+  orgdb = "org.Hs.eg.db",
+  reducedTermsThreshold = 0.7,
+  filename = "5_enrichedgraph.png",
+  ...
 )
 }
 \arguments{

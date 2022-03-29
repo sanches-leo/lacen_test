@@ -9,4 +9,5 @@
 #' @import rrvgo
 #' @import rtracklayer
 #' @import WGCNA
+#' @import utils
 NULL

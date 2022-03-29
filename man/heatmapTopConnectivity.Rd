@@ -7,12 +7,13 @@
 heatmapTopConnectivity(
   module,
   submodule,
-  number_lnc_pc = FALSE,
-  TOM,
+  hmDimensions = FALSE,
   datExpr,
-  filename,
+  filename = FALSE,
   traits,
   summList,
+  removeNonDEG = FALSE,
+  outTSV = FALSE,
   ...
 )
 }
@@ -21,9 +22,7 @@ heatmapTopConnectivity(
 
 \item{submodule}{submodule number}
 
-\item{number_lnc_pc}{show only top c(number-nc-genes, number-pc-genes), or FALSE to show ALL}
-
-\item{TOM}{topological overlap table}
+\item{hmDimensions}{dim hm}
 
 \item{datExpr}{filtered count data}
 
@@ -32,6 +31,10 @@ heatmapTopConnectivity(
 \item{traits}{tumor/non-tumor}
 
 \item{summList}{summary list table}
+
+\item{removeNonDEG}{show only DEGs}
+
+\item{outTSV}{generate a tsv table}
 
 \item{...}{others}
 }
