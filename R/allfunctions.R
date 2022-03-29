@@ -11,16 +11,225 @@
 #' @param maxBlockSize wgcna parameter, bigger to faster computers
 #'
 #' @export
-summarizeAndEnrichModules <- function(annotationData,
-                                      datExpression,
-                                      ncGeneNames,
-                                      datExpr,
-                                      indicePower,
-                                      traits,
-                                      cutBootstrap,
-                                      bootstrapStability,
-                                      maxBlockSize = 10000){
-
+summarizeAndEnrichModules <- function(#input data
+  annotationData,
+  datExpression,
+  ncGeneNames,
+  datExpr,
+  indicePower,
+  traits,
+  cutBootstrap = FALSE,
+  bootstrapStability = FALSE,
+  
+  #WGCNA parameters
+  maxBlockSize = maxBlockSize,
+  TOMType = "unsigned",
+  minModuleSize = 30,
+  reassignThreshold = 0,
+  mergeCutHeight = 0.3,
+  pamRespectsDendro = FALSE, 
+  corType = "bicor",
+  
+  #Enrichment analysis parameters
+  user_threshold = 0.05,
+  ontology = "BP",
+  organism = "hsapiens",
+  orgdb="org.Hs.eg.db",
+  reducedTermsThreshold=0.7,
+  filename = "5_enrichedgraph.png",
+  ...){
+  
+  #invalid par checking
+  
+  invalidPar <- function (x, class){
+    if (missing(x) || is.null(x) || length(x) == 0){
+      return(TRUE)
+    } else if (is.list(x) & class == "list"){
+      return(FALSE)
+    } else if (is.vector(x) & class == "cvector" & is.character(x)){
+      return(FALSE)
+    } else if (is.character(x) & class == "character"){
+      return(FALSE)
+    } else if (is.numeric(as.numeric(x)) & class == "numeric"){
+      return(FALSE)
+    } else if (is.logical(x) & class == "logical"){
+      return(FALSE)
+    } else if(is.vector(x) & class =="nvector" & is.numeric(x)){
+      return(FALSE)
+    } else {
+      return(TRUE)}
+  }
+  
+  # annotationData
+  if(!(ncol(annotationData) == 2 && all(colnames(annotationData) == c("gene_id", "gene_name")))){
+    stop("Invalid format of annotationData, please run checkInput function.")
+  }
+  # ncGeneNames
+  if(!(ncol(ncGeneNames) == 2 && all(colnames(ncGeneNames) == c("gene_id", "gene_name")))){
+    stop("Invalid format of ncGeneNames, please run checkInput function.")
+  }
+  # datExpression
+  if(!(ncol(datExpression) == 3 && all(colnames(datExpression) == c("Transcript_ID", "log2FoldChange.1","padj.1")))){
+    stop("Invalid format of datExpression, please run checkInput function.")
+  }
+  
+  # traits
+  if(invalidPar(traits, "nvector")){
+    stop("traits receives a numeric vector of 1 and 2")
+  } else if(!all(sort(unique(traits)) == c(1,2))){
+    stop("traits receives a numeric vector of 1 and 2")
+  }
+  
+  # datExpr
+  if(!(nrow(datExpr) == length(traits))){
+    stop("Invalid format of datExpression, please run checkInput function.")
+  }
+  
+  # indicePower
+  if(!is.numeric(indicePower)){
+    stop("indicePower receives a numeric value given on pickSoftThresholdPlot function")
+  }
+  
+  
+  
+  #cutbootstrap
+  if(!(!invalidPar(cutBootstrap, "logical") | is.numeric(cutBootstrap))){
+    stop("cutBootstrap receives FALSE or an integer between 0 and 100")
+  } else if (cutBootstrap > 100 | cutBootstrap < 0){
+    stop("cutBootstrap receives FALSE or an integer between 0 and 100")
+  }
+  
+  if(isFALSE(cutBootstrap) & !isFALSE(bootstrapStability)){
+    warning("bootstrapStability set to FALSE by coercion")
+    bootstrapStability <- FALSE
+  } else if(!isFALSE(cutBootstrap) & isFALSE(bootstrapStability)){
+    warning("cutBootstrap set to FALSE by coercion")
+    cutBootstrap <-  FALSE
+  }
+  
+  if(isFALSE(bootstrapStability)){
+    bootstrapStability <- data.frame(rep(100, ncol(datExpr)), row.names = colnames(datExpr))
+  }
+  
+  #bootstrapStability
+  if(!(is.data.frame(bootstrapStability) & ncol(bootstrapStability) == 1)){
+    stop("wrong dimensions of bootstrapStability")
+  }
+  
+  #enrichment parameters
+  if(organism != "hsapiens"){
+    warning("Organism is not the default. Remember to set orgdb to match the new organism. The analysis will proceed")
+  }
+  onts <- c("BP", "MF", "CC")
+  if(!ontology %in% onts){
+    stop("Ontology only receives 'BP', 'MF' or 'CC'")
+  }
+  if(ontology == "BP"){
+    sources = c("GO:BP")
+    ont="BP"
+  } else if(ontology == "MF"){
+    sources = c("GO:MF")
+    ont="MF"
+  } else if(ontology == "CC"){
+    sources = c("GO:CC")
+    ont="CC"}
+  
+  #functions
+  summarizeData <- function(allDegrees, modules, bootstrapStability, cutBootstrap, ncGeneNames, cGeneNames, datExpression){
+    #The function takes all the data and reduces it to a single data frame
+    
+    module <- modules
+    #Bootstrap
+    if(!isFALSE(bootstrapStability)){
+      cutBootstrap <- as.vector(bootstrapStability > cutBootstrap/100)
+    } else{
+      cutBootstrap <- rep(TRUE, nrow(bootstrapStability))
+    }
+    
+    #geneNames
+    #I need to check the number of genes, if all genes are named here
+    ncGeneNames$is_nc <- TRUE
+    cGeneNames$is_nc <- FALSE
+    geneNames <- rbind(ncGeneNames, cGeneNames)
+    geneNames <- geneNames[geneNames$gene_id %in% rownames(allDegrees),]
+    geneNames <- geneNames[match(rownames(allDegrees), geneNames$gene_id),]
+    
+    #datExpression
+    datDE <- datExpression[datExpression$Transcript_ID %in% rownames(allDegrees),]
+    noDE <- rownames(allDegrees)[!rownames(allDegrees) %in% datDE$Transcript_ID]
+    noDE <- cbind(noDE, matrix(data = NA, nrow = length(noDE), ncol = ncol(datExpression)-1))
+    colnames(noDE) <- colnames(datExpression)
+    datDE <- rbind(datDE, noDE)
+    datDE <- datDE[match(rownames(allDegrees), datDE$Transcript_ID),]
+    datDE <- apply(datDE[,2:ncol(datDE)], 2, as.numeric)
+    
+    summdf <- cbind(geneNames, module, cutBootstrap, allDegrees, datDE)
+    
+    return(summdf)
+  }
+  
+  summarizeSubmodules <- function(summdf, rrvgolist, listgprof){
+    #submodules
+    ncluster <- 0
+    for(modname in names(rrvgolist)){
+      n <- max(rrvgolist[[modname]]$cluster)
+      if(n > ncluster){
+        ncluster <- n
+      }
+    }
+    list_submodule <- vector(mode = "list", length = ncluster)
+    for(modname in names(rrvgolist)){
+      reducedmod <- unique(rrvgolist[[modname]][,"cluster"])
+      for(term in reducedmod){
+        go <- rrvgolist[[modname]][rrvgolist[[modname]]$cluster == term, "go"]
+        submodule <- listgprof[[modname]][["result"]][listgprof[[modname]][["result"]]$term_id %in% go, "intersection"]
+        submodule_genes <- unique(unlist(strsplit(submodule, ",")))
+        list_submodule[[term]] <- c(list_submodule[[term]], submodule_genes)
+      }
+    }
+    falses <- rep(FALSE, nrow(summdf))
+    falsedf <- data.frame(rep(list(rep(FALSE, nrow(summdf))), length(list_submodule)))
+    colnames(falsedf) <- as.character(1:length(list_submodule))
+    summdf <- cbind(summdf, falsedf)
+    for(element in 1:length(list_submodule)){
+      genesinterm <- summdf$gene_id %in% list_submodule[[element]]
+      summdf[, as.character(element)] <- summdf[, as.character(element)] | genesinterm
+    }
+    
+    return(summdf)
+  }
+  
+  enrichList <- function(summdf, user_threshold, sources, organism, ...){
+    #The function takes the connectivity dataframe(allDegreesBootstrap) and
+    #the background genes, do the gprofiler enrichment analysis for each module
+    #and returns a list of enriched dataframes.
+    background <- summdf[summdf$cutBootstrap, ]$gene_id
+    
+    listgprof <- list()
+    for(mod in sort(unique(summdf$module))){
+      if(mod != 0){
+        query <- summdf[summdf$module == mod & summdf$cutBootstrap,]
+        query <- query[order(query$kWithin, decreasing = TRUE), ]$gene_id
+        
+        # gostres <- gprofiler2::gost(query = query, evcodes = TRUE, multi_query = FALSE,
+        #                             user_threshold = 0.05, custom_bg = background,
+        #                             ordered_query = TRUE,
+        #                             sources = c("GO:BP"))
+        
+        gostres <- gprofiler2::gost(query = query,
+                                    evcodes = TRUE,
+                                    multi_query = FALSE,
+                                    ordered_query = TRUE,
+                                    user_threshold = user_threshold,
+                                    custom_bg = background,
+                                    sources = sources,
+                                    organism = organism)
+        listgprof[[as.character(mod)]] <- gostres
+      }
+    }
+    return(listgprof)
+  }
+  
   TOMmodules <- function(datExpr, indicePower, summdf){
     #10 - Heatmap
     TOM <- WGCNA::TOMsimilarityFromExpr(datExpr, power = indicePower, TOMType = "unsigned")
@@ -29,26 +238,203 @@ summarizeAndEnrichModules <- function(annotationData,
     TOM <- TOM[!summdf$module == 0, !summdf$module == 0]
     return(TOM)
   }
-
-
-  if(isFALSE(bootstrapStability)){
-    bootstrapStability <- data.frame(rep(100, ncol(datExpr)), row.names = colnames(datExpr))
+  
+  reduceEnrichment <- function(listgprof, summdf, datExpr, indicePower, reducedTermsThreshold){
+    #The function takes a list of gprofiler dataframe, and applies rrvgo functions
+    #to cluster the ontologies and make it simpler to analyse. It returns a list
+    #of dataframes with the clustered pathways
+    
+    adjacencyMatrix <- abs(cor(datExpr))^indicePower
+    
+    ncData <- summdf[summdf$cutBootstrap & summdf$is_nc, c("gene_id", "gene_name")]
+    nc_id <- NA
+    allDegreesBootstrap <- summdf[summdf$cutBootstrap, c("gene_id", "module")]
+    
+    convert_id_nc <- function(ncData, nc_id, orgdb, ont, ...){
+      if(length(nc_id) == 1){
+        if(nc_id %in% ncData$gene_id){
+          return(ncData[ncData$gene_id == nc_id, "gene_name"])
+        } else {
+          return(nc_id)
+        }
+      } else {
+        result <- c()
+        for(i in nc_id){
+          if(i %in% ncData$gene_id){
+            result <- c(result, ncData[ncData$gene_id == i, "gene_name"])
+          } else {
+            result <- c(result, i)
+          }
+        }
+        return(result)
+      }
+    }
+    
+    rrvgolist <- list()
+    for(name in names(listgprof)){
+      
+      if(name != '0' & nrow(listgprof[[name]]$result) > 1){
+        
+        go_analysis <- listgprof[[name]]$result
+        
+        simMatrix <- rrvgo::calculateSimMatrix(go_analysis$term_id,
+                                               orgdb = orgdb,
+                                               ont = as.character(ont),
+                                               method="Rel")
+        
+        scores <- stats::setNames(-log10(go_analysis$p_value), go_analysis$term_id)
+        reducedTerms <- rrvgo::reduceSimMatrix(simMatrix,
+                                               scores,
+                                               threshold=reducedTermsThreshold,
+                                               orgdb = orgdb)
+        
+        
+        clustered_genes <- merge(go_analysis[,c("term_id", "intersection")], reducedTerms[,c("go", "parentTerm", "cluster")], by = 1)
+        
+        intersections <- list()
+        for (cluster in unique(clustered_genes$cluster)) {
+          intersections[[cluster]] <- unique(unlist(strsplit(unlist(paste(unlist(clustered_genes[clustered_genes$cluster == cluster, "intersection"]), sep = ",")), ",")))
+        }
+        
+        #Genes is noncoding
+        genes_in_module <- summdf[summdf$module == name, ]$gene_id
+        nc_in_module <- ncData[ncData$gene_id %in% genes_in_module, "gene_id"]
+        
+        #loop in submodule?
+        mod_adj <- adjacencyMatrix[summdf$gene_id %in% unique(unlist(intersections)), summdf$gene_id %in% nc_in_module]
+        
+        #get module kwithin median
+        median_kwithin_submod <- vector()
+        
+        for(submodule in seq(1, length(intersections))){
+          submod_adj <- adjacencyMatrix[summdf$gene_id %in% intersections[[submodule]],summdf$gene_id %in% intersections[[submodule]]]
+          kwithin_submodule_genes <- apply(submod_adj, 2, sum) - 1
+          median_kwithin <- stats::median(kwithin_submodule_genes)
+          median_kwithin_submod[as.character(submodule)] <- median_kwithin
+        }
+        
+        #for each submodule, subset the module adj dataframe and find the lncrnas submodule kwithin/submodule
+        nc_kwithin_submod_list <- list()
+        
+        for(submodule in seq(1, length(intersections))){
+          submod_adj <- mod_adj[rownames(mod_adj) %in% intersections[[submodule]],]
+          nc_kwithin_submod <- apply(submod_adj, 2, sum)
+          nc_kwithin_submod_list[[submodule]] <- nc_kwithin_submod
+        }
+        
+        nc_kwithin_submod_df <- as.data.frame(nc_kwithin_submod_list)
+        colnames(nc_kwithin_submod_df) <- seq(1, length(intersections))
+        nc_kwithin_submod_df <- t(nc_kwithin_submod_df)
+        
+        #compare each kwithin(median_kwithin_submod) with
+        #the median connectivity of each submodule (nc_kwithin_submod_df)
+        lnc_over_median_kwithin <- list()
+        
+        for(submodule in seq(1, length(intersections))){
+          lnc_over_median <- which(nc_kwithin_submod_df[submodule,] > median_kwithin_submod[as.character(submodule)])
+          if(!length(names(lnc_over_median)) == 0){
+            lnc_over_median_kwithin[[as.character(submodule)]] <- names(lnc_over_median)
+          } else {
+            lnc_over_median_kwithin[[as.character(submodule)]] <- NA
+          }
+          
+        }
+        
+        pre_reduced_term <- lnc_over_median_kwithin[reducedTerms$cluster]
+        DE_genes <- summdf[abs(summdf$log2FoldChange.1) > 1 & summdf$padj.1 < 0.05, "gene_id"]
+        DE_genes <- DE_genes[!is.na(DE_genes)]
+        
+        n_lnc <- lapply(pre_reduced_term, function(x) ifelse(is.na(x), 0, length(x)))
+        n_lnc <- lapply(n_lnc, unique)
+        id_lnc <- lapply(pre_reduced_term, paste, collapse = ", ")
+        name_lnc <- lapply(pre_reduced_term, function(x) convert_id_nc(ncData, x))
+        name_lnc <- lapply(name_lnc, paste, collapse = ", ")
+        n_de <- lapply(pre_reduced_term, function(x) sum(x %in% DE_genes))
+        n_de <- lapply(n_de, function(x) ifelse(x == 0 & length(x) == 1, 0, x))
+        ID_de0 <- lapply(pre_reduced_term, function(x) x[x %in% DE_genes])
+        ID_de <- lapply(ID_de0, function(x) ifelse(length(x) == 0, NA, paste(x, collapse = ", ")))
+        name_de <- lapply(ID_de0, function(x) convert_id_nc(ncData, x))
+        name_de <- lapply(name_de, function(x) ifelse(is.null(x), NA, paste(x, collapse = ", ")))
+        
+        reducedTerms$number_lnc_highly_connected <- unlist(n_lnc)
+        reducedTerms$id_lnc_highly_connected <- id_lnc
+        reducedTerms$name_lnc_highly_connected <- name_lnc
+        reducedTerms$number_lnc_DE <- unlist(n_de)
+        reducedTerms$id_lnc_DE <- ID_de
+        reducedTerms$name_lnc_DE <- name_de
+        
+        
+        reducedTerms$parentTerm2 <- reducedTerms$parentTerm
+        reducedTerms$parentTerm <- paste(reducedTerms$cluster, " - ", reducedTerms$parentTerm, " (",n_de , "/", n_lnc, ")", sep = "" )
+        
+        rrvgolist[[name]] <- reducedTerms
+      }
+      
+    }
+    return(rrvgolist)
   }
-
+  
+  saveEnrichedGraph <- function(rrvgolist, summdf, datExpr, traits, filename){
+    genesToSel <- summdf[summdf$cutBootstrap, c("module", "gene_id")]
+    datExprBoots <- datExpr[, colnames(datExpr) %in% genesToSel$gene_id]
+    #The function creates a treemap plot for the reduced enrichment of each module, and save as a unique png
+    vplayout <- function(x, y) grid::viewport(layout.pos.row = x, layout.pos.col = y)
+    ngraphs <- length(rrvgolist) #number of graphs
+    sizgraphs <- ceiling(sqrt(length(rrvgolist))) #number of rows/columns
+    grDevices::png(filename = filename, width=800*sizgraphs, height=800*sizgraphs) #Each graph should have 600x600px
+    grid::pushViewport(grid::viewport(layout = grid.layout(sizgraphs,sizgraphs))) #Prepare the environment
+    counter <- 1 #The order of each module in the list
+    for(i in 1:sizgraphs){
+      for(j in 1:sizgraphs){
+        if(counter < ngraphs + 1){
+          module <- names(rrvgolist[counter])
+          genes_in_mod <- genesToSel$module == module
+          MEs0 = WGCNA::moduleEigengenes(datExprBoots, as.numeric(genes_in_mod))$eigengenes
+          MEs = WGCNA::orderMEs(MEs0)
+          moduleTraitCor = WGCNA::cor(MEs, traits, use = "p")
+          moduleTraitPvalue = WGCNA::corPvalueStudent(moduleTraitCor, nrow(datExpr))
+          tcorr = moduleTraitCor[[2]]
+          tp = moduleTraitPvalue[[2]]
+          #Plot the graph based on the GO score term, vp is the position in the figure.
+          rrvgo::treemapPlot(rrvgolist[[counter]], size="score",
+                             # title = paste("Reduced enrichment of module", names(rrvgolist[counter]), "(lncRNAs over median connectivity)"),
+                             title = paste("Module",
+                                           module,
+                                           "(corr.:",
+                                           format(tcorr, scientific = F, digits = 2),
+                                           ", pValue: ",
+                                           ifelse(tp > 0.0099, format(tp, scientific = F, digits = 2), format(tp, scientific = T, digits = 2)),
+                                           ")"),
+                             vp=vplayout(i,j),
+                             fontsize.title = 22,
+                             fontsize.labels = 14
+          )
+        }
+        counter <- counter + 1
+      }
+    }
+    grDevices::dev.off()
+  }
+  
+  
+  
   #Making the network
   network <-  WGCNA::blockwiseModules(datExpr, power = indicePower, maxBlockSize = maxBlockSize,
-                                      TOMType = "unsigned", minModuleSize = 30,
-                                      reassignThreshold = 0, mergeCutHeight = 0.15,
-                                      numericLabels = TRUE, pamRespectsDendro = FALSE,
-                                      verbose = 3, corType = "bicor")
+                                      TOMType = TOMType, minModuleSize = minModuleSize,
+                                      reassignThreshold = reassignThreshold, mergeCutHeight = mergeCutHeight,
+                                      numericLabels = TRUE, pamRespectsDendro = pamRespectsDendro,
+                                      verbose = 3, corType = corType)
   modules <- network$colors
-
+  
+  #getting connectivities
   allDegrees <- WGCNA::intramodularConnectivity.fromExpr(datExpr = datExpr, power = indicePower, colors = modules)
   allDegrees$gene_id <- colnames(datExpr)
   rownames(allDegrees) <- colnames(datExpr)
-
+  
+  #gene names
   cGeneNames <- annotationData[!annotationData$gene_id %in% ncGeneNames$gene_id, ]
-
+  
+  #First summarizing (wo/ enrichment)
   summdf <- summarizeData(allDegrees = allDegrees,
                           modules = modules,
                           bootstrapStability,
@@ -56,22 +442,26 @@ summarizeAndEnrichModules <- function(annotationData,
                           ncGeneNames,
                           cGeneNames,
                           datExpression)
-
-  listgprof <- enrichList(summdf)
-
-  #8 - rrvgo reducing and selecting pathways
-  rrvgolist <- reduceEnrichment(listgprof, summdf, datExpr, indicePower)
-
-  saveEnrichedGraph(rrvgolist, summdf, datExpr, traits, filename = "5_enrichedgraph_cut10.png")
-
+  
+  #Enrichment analysis
+  listgprof <- enrichList(summdf, user_threshold, sources, organism)
+  
+  #Reducing the enrichment
+  rrvgolist <- reduceEnrichment(listgprof, summdf, datExpr, indicePower, reducedTermsThreshold)
+  
+  #Saving the graph
+  saveEnrichedGraph(rrvgolist, summdf, datExpr, traits, filename = filename)
+  
+  #Second summarizing
   summdf <- summarizeSubmodules(summdf,
                                 rrvgolist,
                                 listgprof)
+  
+  #Topological overlap matrix
   TOM <- TOMmodules(datExpr, indicePower, summdf)
-  allData <- list("summdf" = summdf, "rrvgolist" = rrvgolist, "TOM" = TOM)
-  return(allData)
+  
+  return(list("summdf" = summdf, "rrvgolist" = rrvgolist, "TOM" = TOM))
 }
-
 
 #' This function filters the expression data (TPM or FPKM), by MAD or DEG, then it applies voom transformation using limma package.
 #'
@@ -82,12 +472,12 @@ filterTransform <- function(datExpression, datCounts){
   filterDEG <- function(datExpression, padj_thrshold = 0.01, FC_threshold = 1){
     #This function finds the SD that correspond to 99% of DEGs, filtering
     #the data by this SD value.
-    padj <- datExpression$padj.1 < 0.01 & !is.na(datExpression$padj.1)
+    padj <- datExpression$padj.1 < padj_thrshold & !is.na(datExpression$padj.1)
     logFC <- abs(datExpression$log2FoldChange.1) > 1 & !is.na(abs(datExpression$log2FoldChange.1))
     DEG <- datExpression[padj & logFC,]
     return(DEG)
   }
-
+  
   selectByVariance <- function(datCounts, top_n_genes = 5000){
     #If there is no DEG avaiable, the user can filter the data by MAD,
     #Selecting the top variance genes (top_n_genes)
@@ -95,51 +485,30 @@ filterTransform <- function(datExpression, datCounts){
     dat <- datCounts[rev(order(mads))[1:top_n_genes], ]
     return(dat)
   }
-
+  
   filterCountsByDegSD <- function(datCounts, differentialExpression){
     datCounts_SD <- apply(datCounts, 1, function(x) stats::sd(x[-c(1)]))
     datCounts$SD <- datCounts_SD
     DEG2 <- differentialExpression[,c("Transcript_ID", "log2FoldChange.1")]
     DEG2$SD <- datCounts[datCounts$Transcript_ID %in% DEG2$Transcript_ID, "SD"]
     top99SD <- sort(DEG2$SD)[round(0.01*length(DEG2$SD))]
-    print(paste("All", sum(datCounts$SD < top99SD),"transcripts with SD less than", top99SD, "will be removed"))
+    print(paste(sum(datCounts$SD < top99SD),"transcripts removed", "( SD <",round(top99SD, digits = 2), ")"))
     print(paste(nrow(datCounts) - sum(datCounts$SD < top99SD), "transcripts remains"))
     return(datCounts[datCounts$SD > top99SD, -c(ncol(datCounts))])
   }
-
-  filterData <- function(datCounts, filter_by = "MAD", DEG = FALSE, top_n_genes = 5000){
-
-    # if("conditions to error"){
-    #   stop("error message")
-    # }
-    #filter low count transcripts
-    #Only genes detected by at least one read count per million in at least a quarter of the samples were considered.
-    npass <- ceiling((ncol(datCounts) - 1)/4)
-    failed <- apply(datCounts[,-c(1)], 1, function(x) sum(x > 1) > npass)
-    datCounts <- datCounts[failed,]
-
-
-    if(filter_by == "MAD"){
-      #Diogo said that is beter to use all the data, and not to filter it by mad
-      #Here, we are going to filter by mad the top transcripts, should be multiple of 100
-      #Order by mad and filter by selmad ############################################
-      dat <- selectByVariance(datCounts, top_n_genes = 5000)
-    } else if(filter_by == "DEG"){
-      #Filter the aproved transcripts ############################################
-      #We suggest removing features whose counts are consistently low (for example, removing all features that have a count of less than say 10 in more than 90% of the samples) because such low-expressed features tend to reflect noise and correlations based on counts that are mostly zero aren't really meaningful. The actual thresholds should be based on experimental design, sequencing depth and sample counts.
-      #In this case, the filter selects the SD to maintain 99% of the differentially expressed genes
-      dat <- filterCountsByDegSD(datCounts, DEG)
-    }
-    #Names of dat in the rownames, not at the column
-    rownames(dat) <- dat$Transcript_ID
-    dat$Transcript_ID <- NULL
-    # We transpose the data so that the rows correspond to samples and the columns correspond to genes
-    return(dat)
-  }
-
-  differentialExpression <- filterDEG(datExpression)
-  datExpr <- filterData(datCounts, filter_by="DEG", DEG=differentialExpression)
-
+  
+  
+  
+  npass <- ceiling((ncol(datCounts) - 1)/4)
+  failed <- apply(datCounts[,-c(1)], 1, function(x) sum(x > 1) > npass)
+  datCounts <- datCounts[failed,]
+  differentialExpression <- filterDEG(datExpression[datExpression$Transcript_ID %in% datCounts$Transcript_ID, ])
+  
+  datExpr <- filterCountsByDegSD(datCounts, differentialExpression)
+  #Names of dat in the rownames, not at the column
+  rownames(datExpr) <- datExpr$Transcript_ID
+  datExpr$Transcript_ID <- NULL
+  
   #logtransform datExpr using rlog function
   datExpr <- limma::voom(t(datExpr))$E
   datExpr <- data.matrix(datExpr, rownames.force=TRUE)
@@ -175,15 +544,104 @@ cutOutlierSample <- function(data, trait, filename, height=FALSE){
 #'
 #' @param module module number
 #' @param submodule submodule number
-#' @param number_lnc_pc show only top c(number-nc-genes, number-pc-genes), or FALSE to show ALL
-#' @param TOM topological overlap table
 #' @param datExpr filtered count data
 #' @param filename filename
 #' @param traits tumor/non-tumor
 #' @param summList summary list table
+#' @param removeNonDEG show only DEGs
+#' @param outTSV generate a tsv table
+#' @param hmDimensions dim hm
 #' @param ... others
+#'
 #' @export
-heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM, datExpr,filename, traits, summList, ...){
+heatmapTopConnectivity <- function(module,
+                                   submodule,
+                                   hmDimensions = FALSE,
+                                   datExpr,
+                                   filename = FALSE,
+                                   traits,
+                                   summList,
+                                   removeNonDEG = FALSE,
+                                   outTSV = FALSE,
+                                   ...){
+  
+  number_lnc_pc <- hmDimensions
+  invalidPar <- function (x, class){
+    if (missing(x) || is.null(x) || length(x) == 0){
+      return(TRUE)
+    } else if (is.list(x) & class == "list"){
+      return(FALSE)
+    } else if (is.vector(x) & class == "cvector" & is.character(x)){
+      return(FALSE)
+    } else if (is.character(x) & class == "character"){
+      return(FALSE)
+    } else if (is.numeric(as.numeric(x)) & class == "numeric"){
+      return(FALSE)
+    } else if (is.logical(x) & class == "logical"){
+      return(FALSE)
+    } else if(is.vector(x) & class =="nvector" & is.numeric(x)){
+      return(FALSE)
+    } else {
+      return(TRUE)}
+  }
+  
+  
+  #summList: 3 itens: 
+  if(invalidPar(summList, "list")){
+    stop("invalid format. summList should be a list.
+         Please, rebuild summList with summarizeAndEnrichModules function.")
+  }  else if(all(!names(summList) == c("summdf","rrvgolist","TOM")) & !length(summList) == 3){
+    stop("summList should be a 3 elements list (summdf, rrvgolist and TOM).
+         Please, rebuild summList with summarizeAndEnrichModules function.")
+  }
+  
+  TOM <- summList$TOM
+  
+  #module
+  if(invalidPar(module, "numeric") | module <= 0){
+    stop("invalid format. Module should be a positive integer")
+  }else if(!module %in% names(table(summList$summdf$module))){
+    possible <- base::sort(base::unique(summList$summdf$module))
+    possible <- possible[possible > 0]
+    possible <- base::paste(possible, collapse =", ")
+    stop("Invalid module. Possible modules are: ", possible)
+  }
+  
+  #submodule
+  if(!isFALSE(submodule)){
+    if(invalidPar(submodule, "numeric") | submodule <= 0){
+      stop("invalid format. Module should be a positive integer")
+    }else if(!as.character(submodule) %in% names(summList$rrvgolist)){
+      possible <- base::sort(as.numeric(base::names(summList$rrvgolist)))
+      possible <- base::paste(possible, collapse =", ")
+      stop("Invalid submodule. Possible submodules are: ", possible)
+    }
+  }
+  
+  #filename = FALSE
+  if(!isFALSE(filename)){
+    if(invalidPar(filename, "character")){
+      stop("filename should be FALSE or a string")
+    }
+  }
+  
+  #removeNonDEG = FALSE
+  if(invalidPar(removeNonDEG, "logical")){
+    stop("removeNonDEG should be a logical value")
+  }
+  
+  
+  #outTSV = FALSE
+  if(invalidPar(outTSV, "logical")){
+    stop("outTSV should be a logical value")
+  }
+  
+  #traits
+  if(invalidPar(traits, "nvector")){
+    stop("traits should be a numeric vector")
+  }
+  
+  
   dataToColor <- function(x,summdf, module, logDEG = FALSE, mod){
     #The function takes a named vector(gene_ID) to connectivity (logDEG = FALSE) or
     #a gene_id vector to differential expressionlogDEG(logDEG = TRUE),
@@ -196,7 +654,7 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
     #lighter blue rgb(150,150,255, names = NULL, maxColorValue = 255): "#9696FF"
     #green gb(0,75,0, names = NULL, maxColorValue = 255): "#004B00"
     #light greeb rgb(240,255,240, names = NULL, maxColorValue = 255): "#F0FFF0"
-
+    
     if(logDEG){
       degdf <- summdf[summdf$gene_id %in% x, c("gene_id", "log2FoldChange.1", "padj.1")]
       degdf <- degdf[match(x, degdf$gene_id), ]
@@ -205,20 +663,42 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
       colors[which((degdf$log2FoldChange.1 > 1 & degdf$padj.1 > 0.05) | (degdf$log2FoldChange.1 > 0 & degdf$log2FoldChange.1 < 1))] <- "#FF9696"
       colors[which(degdf$log2FoldChange.1 < -1 & degdf$padj.1 <= 0.05)] <- "#0000FF"
       colors[which((degdf$log2FoldChange.1 < -1 & degdf$padj.1 > 0.05) | (degdf$log2FoldChange.1 < 0 & degdf$log2FoldChange.1 > -1))] <- "#9696FF"
-
+      
     } else{
       stats <- summdf[summdf$module == mod, ]$kWithin
       maxvalue <- stats::quantile(stats, probs = 0.9)
       minvalue <- stats::quantile(stats, probs = 0.1)
       x[x<minvalue] <- minvalue
       x[x>maxvalue] <- maxvalue
-      pal <- grDevices::colorRampPalette(c("#F0FFF0", "#004B00"))(128) #lighter to darker green
+      pal <- grDevices::colorRampPalette(c("#c8fac8", "#003200"))(128) #lighter to darker green
       colors <- pal[findInterval(x,seq(minvalue,maxvalue,length.out=length(pal)), all.inside=FALSE)]
     }
     return(colors)
   }
-
-  #This function plots the heatmap, cite the paper!
+  
+  termsToOut <- function(out, rrvgolist, module){
+    module <- as.character(module)
+    rrvgoterms <- rrvgolist[[module]]
+    rrvgoterms <- rrvgoterms[,c("cluster", "parentTerm2")]
+    rrvgoterms <- rrvgoterms[!base::duplicated(temp), ]
+    rrvgoterms <- rrvgoterms[order(rrvgoterms$cluster), ]
+    rownames(rrvgoterms) <- NULL
+    termsCol <- NULL
+    for(l in 1:nrow(out)){
+      sel <- unlist(out[l,which(colnames(out) == "1"):dim(out)[2]])
+      if(sum(sel) > 0){
+        pastedTerm <- paste(rrvgoterms$parentTerm2[sel], collapse = ", ")
+      } else {
+        pastedTerm <- " "
+      }
+      termsCol <- c(termsCol, pastedTerm)
+    }
+    out <- out[,c(1:4,7,11,15)]
+    submodules <- NULL
+    out$submodules <- termsCol
+    return(out)
+  }
+  
   heatmap.3 <- function(x,
                         Rowv = TRUE, Colv = if (symm) "Rowv" else TRUE,
                         distfun = stats::dist,
@@ -270,7 +750,7 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
                         KeyValueName="Value",
                         keyvalues=TRUE,
                         ...){
-
+    
     invalid <- function (x) {
       if (missing(x) || is.null(x) || length(x) == 0)
         return(TRUE)
@@ -280,7 +760,7 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
         return(all(is.na(x)))
       else return(FALSE)
     }
-
+    
     x <- as.matrix(x)
     scale01 <- function(x, low = min(x), high = max(x)) {
       x <- (x - low)/(high - low)
@@ -482,7 +962,7 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
     # on.exit(par(op))
     #
     # layout(lmat, widths = lwid, heights = lhei, respect = FALSE)
-
+    
     if (!missing(RowSideColors)) {
       if (!is.matrix(RowSideColors)){
         par(mar = c(margins[1], 0, 0, 0))
@@ -506,10 +986,10 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
         }
       }
     }
-
-
+    
+    
     if (!missing(ColSideColors)) {
-
+      
       if (!is.matrix(ColSideColors)){
         par(mar = c(0.5, 0, 0, margins[2]))
         image(cbind(1:nc), col = ColSideColors[colInd], axes = FALSE)
@@ -532,7 +1012,7 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
         }
       }
     }
-
+    
     par(mar = c(margins[1], 0, 0, margins[2]))
     x <- t(x)
     cellnote <- t(cellnote)
@@ -615,59 +1095,105 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
       text(x = c(row(cellnote)), y = c(col(cellnote)), labels = c(cellnote),
            col = notecol, cex = notecex)
     par(mar = c(margins[1], 0, 0, 0))
-
-
+    
+    
     if (dendrogram %in% c("both", "row")) {}
-
+    
+    
     if (keyvalues) {
       #Connectivity/TOM
       {
         # par(mfrow=c(3,1))
         # par(mar = c(1,8,10,1), cex = 1.2)
-        pal1 <- grDevices::colorRampPalette(c("#F0FFF0", "#004B00"))(128)
+        pal1 <- grDevices::colorRampPalette(c("#c8fac8", "#003200"))(128)
         pal2 <- rev(grDevices::grey.colors(128))
         plot(0, 0, xlim = c(0, 2), ylim = c(0, 128), col = "white", axes = FALSE, ylab = "", xlab = "")
         axis(2, at = 1, labels = "Low", tick = 0, las = 2)
         axis(2, at = 127, labels = "High", tick = 0, las = 2)
         axis(3, at = 0.5, labels = "Connectivity", tick = 0, las = 2)
         axis(3, at = 1.5, labels = "Topological Overlap", tick = 0, las = 2)
-
+        
         for(i in 0:127){
           polygon(c(0:1, 1:0, 0) + 0 , c(0, 0:1, 1:0) + i, col = pal1[i], border = FALSE)
           polygon(c(0:1, 1:0, 0) + 1 , c(0, 0:1, 1:0) + i, col = pal2[i], border = FALSE)
         }
       }
-
+      
       #DEG up/down
-      {
+      if(isFALSE(removeNonDEG)){
         # par(mar = c(1,8,8,1))
+        plot(0, 0, xlim = c(0, 2), ylim = c(0, 3), col = "white", axes = FALSE, ylab = "", xlab = "")
+        
+        axis(2, at = 2.5, labels = "upregulated", tick = 0, las = 2)
+        axis(2, at = 1.5, labels = "downregulated", tick = 0, las = 2)
+        axis(3, at = 0.5, labels = "significant", tick = 0, las = 2)
+        axis(3, at = 1.5, labels = "non-significant", tick = 0, las = 2)
+        axis(2, at = 0.5, labels = "no DEG data", tick = 0, las = 2)
+        
+        polygon(c(0, 1, 1, 0) + 0 , c(0, 0, 1, 1) + 1, col = "#0000FF", border = FALSE)
+        polygon(c(0, 1, 1, 0)  + 1 , c(0, 0, 1, 1) + 1, col = "#9696FF", border = FALSE)
+        polygon(c(0, 1, 1, 0)  + 0 , c(0, 0, 1, 1) + 2, col = "#FF0000", border = FALSE)
+        polygon(c(0, 1, 1, 0)  + 1 , c(0, 0, 1, 1) + 2, col = "#FF9696", border = FALSE)
+        
+        polygon(c(0.5, 1.5, 1.5, 0.5) + 0 , c(0, 0, 1, 1) + 0, col = "black", border = FALSE)
+      } else {
         plot(0, 0, xlim = c(0, 2), ylim = c(0, 2), col = "white", axes = FALSE, ylab = "", xlab = "")
-
+        
         axis(2, at = 1.5, labels = "upregulated", tick = 0, las = 2)
         axis(2, at = 0.5, labels = "downregulated", tick = 0, las = 2)
-        axis(3, at = 0.5, labels = "significative", tick = 0, las = 2)
-        axis(3, at = 1.5, labels = "non-significative", tick = 0, las = 2)
-        # axis(2, at = 0.5, labels = "no change", tick = 0, las = 2)
-
+        axis(3, at = 0.5, labels = "significant", tick = 0, las = 2)
+        axis(3, at = 1.5, labels = "non-significant", tick = 0, las = 2)
+        
         polygon(c(0, 1, 1, 0) + 0 , c(0, 0, 1, 1) + 0, col = "#0000FF", border = FALSE)
         polygon(c(0, 1, 1, 0)  + 1 , c(0, 0, 1, 1) + 0, col = "#9696FF", border = FALSE)
         polygon(c(0, 1, 1, 0)  + 0 , c(0, 0, 1, 1) + 1, col = "#FF0000", border = FALSE)
         polygon(c(0, 1, 1, 0)  + 1 , c(0, 0, 1, 1) + 1, col = "#FF9696", border = FALSE)
-
-        # polygon(c(0.5, 1.5, 1.5, 0.5) + 0 , c(0, 0, 1, 1) + 0, col = "black", border = FALSE)
       }
-
-
-
-
-
-
-      # plot(ddr, horiz = TRUE, axes = FALSE, yaxs = "i", leaflab = "none")
-    }
-
-
-
-
+    }    
+    # if (keyvalues) {
+    #   #Connectivity/TOM
+    #   {
+    #     # par(mfrow=c(3,1))
+    #     # par(mar = c(1,8,10,1), cex = 1.2)
+    #     pal1 <- grDevices::colorRampPalette(c("#F0FFF0", "#004B00"))(128)
+    #     pal2 <- rev(grDevices::grey.colors(128))
+    #     plot(0, 0, xlim = c(0, 2), ylim = c(0, 128), col = "white", axes = FALSE, ylab = "", xlab = "")
+    #     axis(2, at = 1, labels = "Low", tick = 0, las = 2)
+    #     axis(2, at = 127, labels = "High", tick = 0, las = 2)
+    #     axis(3, at = 0.5, labels = "Connectivity", tick = 0, las = 2)
+    #     axis(3, at = 1.5, labels = "Topological Overlap", tick = 0, las = 2)
+    #     
+    #     for(i in 0:127){
+    #       polygon(c(0:1, 1:0, 0) + 0 , c(0, 0:1, 1:0) + i, col = pal1[i], border = FALSE)
+    #       polygon(c(0:1, 1:0, 0) + 1 , c(0, 0:1, 1:0) + i, col = pal2[i], border = FALSE)
+    #     }
+    #   }
+    #   
+    #   #DEG up/down
+    #   {
+    #     # par(mar = c(1,8,8,1))
+    #     plot(0, 0, xlim = c(0, 2), ylim = c(0, 2), col = "white", axes = FALSE, ylab = "", xlab = "")
+    #     
+    #     axis(2, at = 1.5, labels = "upregulated", tick = 0, las = 2)
+    #     axis(2, at = 0.5, labels = "downregulated", tick = 0, las = 2)
+    #     axis(3, at = 0.5, labels = "significative", tick = 0, las = 2)
+    #     axis(3, at = 1.5, labels = "non-significative", tick = 0, las = 2)
+    #     # axis(2, at = 0.5, labels = "miss DEG data", tick = 0, las = 2)
+    #     
+    #     polygon(c(0, 1, 1, 0) + 0 , c(0, 0, 1, 1) + 0, col = "#0000FF", border = FALSE)
+    #     polygon(c(0, 1, 1, 0)  + 1 , c(0, 0, 1, 1) + 0, col = "#9696FF", border = FALSE)
+    #     polygon(c(0, 1, 1, 0)  + 0 , c(0, 0, 1, 1) + 1, col = "#FF0000", border = FALSE)
+    #     polygon(c(0, 1, 1, 0)  + 1 , c(0, 0, 1, 1) + 1, col = "#FF9696", border = FALSE)
+    #     
+    #     # polygon(c(0.5, 1.5, 1.5, 0.5) + 0 , c(0, 0, 1, 1) + 0, col = "black", border = FALSE)
+    #   }
+    
+    # plot(ddr, horiz = TRUE, axes = FALSE, yaxs = "i", leaflab = "none")
+    # }
+    
+    
+    
+    
     else plot.new()
     par(mar = c(0, 0, 0, margins[2]))
     if (dendrogram %in% c("both", "column")) {
@@ -676,7 +1202,7 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
     else plot.new()
     if (!is.null(main))
       mtext(main, cex = 3, adj = 0.60, outer = TRUE)
-
+    
     if (key) {
       par(mar = c(0, 0, 0, 0), cex = 0.75)
       tmpbreaks <- breaks
@@ -690,7 +1216,7 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
         min.raw <- min(x, na.rm = TRUE)
         max.raw <- max(x, na.rm = TRUE)
       }
-
+      
       z <- seq(min.raw, max.raw, length = length(col))
       image(z = matrix(z, ncol = 1), col = col, breaks = tmpbreaks,
             xaxt = "n", yaxt = "n")
@@ -734,10 +1260,10 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
                                     high = retval$breaks[-1], color = retval$col)
     invisible(retval)
   }
-
-
-
-
+  
+  
+  
+  
   #This function takes the module of interest, submodule of interest,
   #the dissimilarity matrix(dissTOM) and plots the heatmap based on the
   #heatmap3 function. The parameter number_lnc_pc reduces the heatmap to
@@ -745,18 +1271,33 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
   #the number of long non coding transcripts and the protein coding transcripts
   #ordered by top connectivity. Second term c(x, -x) can be negative, indicating
   #less connected protein coding transcripts
-
+  
   #TODO: rownames/colnames dissTOM, summdf, think about using other color scheme
   #based on the min/max dissTOM values
-
+  
   # rownames(dissTOM) <- rownames(adjacencyMatrix)
   # colnames(dissTOM) <- colnames(adjacencyMatrix)
-
+  
+  if(isFALSE(filename)){
+    if(isFALSE(submodule)){
+      filename <- paste("7_heatmap_", module, ".png", sep = "")
+    } else {
+      filename <- paste("7_heatmap_", module, "_", submodule, ".png", sep = "")
+    }
+  }
+  
   summdf <- summList[["summdf"]]
   rrvgolist <- summList[["rrvgolist"]]
   TOM <- summList[["TOM"]]
-
-  genes_in_mod_and_subm <- summdf$module == module & summdf[,as.character(submodule)] & !summdf$is_nc
+  
+  if(isFALSE(submodule)){
+    genes_in_mod_and_subm <- summdf$module == module & !summdf$is_nc
+  } else {
+    genes_in_mod_and_subm <- summdf$module == module & summdf[,as.character(submodule)] & !summdf$is_nc
+  }
+  
+  
+  
   genes_in_mod_and_submod <- summdf$gene_id[genes_in_mod_and_subm]
   #calculate the median connectivity for module
   degrees_mod <- summdf[summdf$module == module,]
@@ -769,89 +1310,122 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
   # dissTOM <- dissTOM^7
   # adj_mod_cluster <- dissTOM[rownames(dissTOM) %in% lnc_over_median, genes_in_mod_and_submod]
   adj_mod_cluster <- TOM[rownames(TOM) %in% lnc_over_median, colnames(TOM) %in% genes_in_mod_and_submod]
-
+  
   #Calculate module-trait corr and p-value
-
+  
   #Genes in submod: genes_in_mod_and_subm
-
+  
   #genes in mod
-  genes_in_mod <- summdf$module == module & !summdf$is_nc
-
+  # genes_in_mod <- summdf$module == module & !summdf$is_nc
+  
   # MEs0 = moduleEigengenes(datExpr, as.numeric(genes_in_mod))$eigengenes
   # MEs = orderMEs(MEs0)
   # moduleTraitCor = unlist(cor(MEs, traits, use = "p"))[1]
   # moduleTraitPvalue = unlist(corPvalueStudent(moduleTraitCor, nrow(datExpr)))[1]
-
+  
   MEs0 <- WGCNA::moduleEigengenes(datExpr, as.numeric(genes_in_mod_and_subm))$eigengenes
   MEs <- WGCNA::orderMEs(MEs0)
   submodTraitCor <- unlist(WGCNA::cor(MEs, traits, use = "p"))[1];
   submoduleTraitPvalue <- unlist(WGCNA::corPvalueStudent(submodTraitCor, nrow(datExpr)))[1]
-
+  
   #Filtering data for borders
   pc_connect <- summdf[summdf$gene_id %in% colnames(adj_mod_cluster), c("kWithin", "gene_id")]
   pc_connect[is.na(pc_connect)] <- 0
   pc_connect <- stats::setNames(pc_connect$kWithin, pc_connect$gene_id)
   pc_connect <- sort(pc_connect, decreasing = TRUE)
-
+  
   pc_DEG <- summdf[summdf$gene_id %in% colnames(adj_mod_cluster), c("log2FoldChange.1", "gene_id")]
   pc_DEG[is.na(pc_DEG)] <- 0
   pc_DEG <- pc_DEG$gene_id
   pc_DEG <- pc_DEG[match(names(pc_connect), pc_DEG)]
-
+  
   lnc_connect <- summdf[summdf$gene_id %in% rownames(adj_mod_cluster), c("kWithin", "gene_id")]
   lnc_connect[is.na(lnc_connect)] <- 0
   lnc_connect <- stats::setNames(lnc_connect$kWithin, lnc_connect$gene_id)
   lnc_connect <- sort(lnc_connect, decreasing = TRUE)
-
+  
   lnc_DEG <- summdf[summdf$gene_id %in% rownames(adj_mod_cluster), c("log2FoldChange.1", "gene_id")]
   lnc_DEG[is.na(lnc_DEG)] <- 0
   lnc_DEG <- lnc_DEG$gene_id
   lnc_DEG <- lnc_DEG[match(names(lnc_connect), lnc_DEG)]
-
+  
   #Ordering adj_mod_cluster by connectivity
   adj_mod_cluster <- adj_mod_cluster[match(names(lnc_connect), rownames(adj_mod_cluster)), match(names(pc_connect), colnames(adj_mod_cluster))]
-
+  
   #Data to color
-
+  
   pc_connect_color <- dataToColor(unlist(pc_connect), summdf, logDEG = FALSE, mod = module)
   pc_DEG_color <- dataToColor(unlist(pc_DEG), summdf, logDEG = TRUE, mod = module)
   lnc_connect_color <- dataToColor(unlist(lnc_connect), summdf, logDEG = FALSE, mod = module)
   lnc_DEG_color <- dataToColor(unlist(lnc_DEG), summdf, logDEG = TRUE, mod = module)
-
+  
   colside <- as.matrix(cbind(lnc_DEG_color, lnc_connect_color))
   rowside <- as.matrix(cbind(pc_connect_color, pc_DEG_color))
-
+  
   if(!isFALSE(number_lnc_pc)){
-    if(number_lnc_pc[2] < 0){
-      totalpc <- ncol(adj_mod_cluster)
-      col_number_lnc_pc <- totalpc + number_lnc_pc[2]
-      adj_mod_cluster <- adj_mod_cluster[1:number_lnc_pc[1], col_number_lnc_pc:ncol(adj_mod_cluster)]
-      colside <- colside[1:number_lnc_pc[1],]
-      rowside <- rowside[col_number_lnc_pc:totalpc,]
-    } else {
-      adj_mod_cluster <- adj_mod_cluster[1:number_lnc_pc[1], 1:number_lnc_pc[2]]
-      colside <- colside[1:number_lnc_pc[1],]
-      rowside <- rowside[1:number_lnc_pc[2],]
+    number_lnc_pc <- suppressWarnings(as.integer(number_lnc_pc))
+    if(number_lnc_pc <= 0 | is.na(number_lnc_pc)){
+      stop("number_lnc_pc should be an integer bigger than 0")
+    }else if(invalidPar(number_lnc_pc, "numeric")){
+      stop("number_lnc_pc should be FALSE or an integer bigger than 0")
+    } else{
+      #Warning hm dimensions greater than number_lnc_pc
+      number_lnc_pc1 <- number_lnc_pc2 <- number_lnc_pc
+      if(number_lnc_pc > dim(adj_mod_cluster)[1]){
+        warning("number_lnc_pc exceeds the lnc gene number")
+        number_lnc_pc1 <- dim(adj_mod_cluster)[1]
+      } else if (number_lnc_pc > dim(adj_mod_cluster)[2]){
+        warning("number_lnc_pc exceeds the protein coding gene number")
+        number_lnc_pc2 <- dim(adj_mod_cluster)[2]
+      }
+      adj_mod_cluster <- adj_mod_cluster[1:number_lnc_pc1, 1:number_lnc_pc2]
+      colside <- colside[1:number_lnc_pc1,]
+      rowside <- rowside[1:number_lnc_pc2,]
     }
   }
-
+  
+  if(isTRUE(removeNonDEG)){
+    adj_mod_cluster <- adj_mod_cluster[!(colside[,1] == "black"), !(rowside[,2] == "black")]
+    colside <- colside[!(colside[,1] == "black"), ]
+    rowside <- rowside[!(rowside[,2] == "black"), ]
+  }
+  
   rnames <- rownames(adj_mod_cluster)
   temp <- summdf[summdf$gene_id %in% rnames, c("gene_id", "gene_name")]
   temp <- temp[match(rnames, temp$gene_id), "gene_name"]
   temp[is.na(temp)] <- rnames[is.na(temp)]
   rownames(adj_mod_cluster) <- temp
-
+  
   cnames <- colnames(adj_mod_cluster)
   temp <- summdf[summdf$gene_id %in% cnames, c("gene_id", "gene_name")]
   temp <- temp[match(cnames, temp$gene_id), "gene_name"]
   temp[is.na(temp)] <- cnames[is.na(temp)]
   colnames(adj_mod_cluster) <- temp
-
+  
   colnames(colside) <- c("Non-coding exp.", "Non-coding conn.")
   colnames(rowside) <- c("Protein-coding conn.", "Protein-coding exp.")
-
+  
+  
+  #Setting the title based on parameters
+  hmline1 <- paste("Module:",
+                   as.character(module))
+  hmline2 <- paste("\nSubmodule:",
+                   rrvgolist[[as.character(module)]][rrvgolist[[as.character(module)]]$cluster == submodule,
+                                                     "parentTerm2"][1])
+  hmline3 <- paste("\n( cor =",
+                   round(submodTraitCor, 2),
+                   ", p =",
+                   round(submoduleTraitPvalue, 2),
+                   ")" )
+  if(isFALSE(submodule)){
+    titlehm <- paste(hmline1, hmline3)
+  } else{
+    titlehm <- paste(hmline1, hmline2, hmline3)
+  }
+  
+  #preparing graphic environment to receive heatmap and other elements
   grDevices::png(filename = filename, width = 1800, height = 1800, units = "px")
-
+  
   m <- cbind(rep(0, 22),
              c(c(rep(0, 6), rep(4,6), rep(0, 5), 5, seq(7, 10))),
              rep(0,22),
@@ -859,21 +1433,36 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
              c(6, 2, rep(3, 20)))
   graphics::layout(m, widths = c(0.2, 0.5, 0.2, 0.5, 10), heights = c(0.5, 0.5, rep(0.5, 20)), respect = FALSE)
   graphics::par(oma = c(10, 8, 7, 10), cex = 1.75)
-
+  
+  #calling heatmap
   heatmap.3(t(adj_mod_cluster),
             col = rev(grDevices::grey.colors(100)),
-            main = paste("Module:", as.character(module),
-                         "\nSubmodule:",
-                         rrvgolist[[as.character(module)]][rrvgolist[[as.character(module)]]$cluster == submodule, "parentTerm2"][1],
-                         "\n( cor =", round(submodTraitCor, 2), ", p =", round(submoduleTraitPvalue, 2), ")" ),
+            main = paste(titlehm),
             ColSideColors = colside,
             RowSideColors = t(rowside),
             dendrogram="none", # only draw a row dendrogram
             key = FALSE, Rowv = FALSE, Colv = FALSE,
             keyvalues = TRUE
-
+            
   )
   grDevices::dev.off()
+  
+  if(isTRUE(outTSV)){
+    out <- summdf[summdf$gene_id %in% c(lnc_DEG, pc_DEG), ]
+    out <- out[order(out$is_nc, out$kWithin, decreasing = TRUE), ]
+    if(isTRUE(removeNonDEG)){
+      out <- out[!is.na(out$padj.1),]
+    }
+    out <- termsToOut(out, rrvgolist, module)
+    
+    if(isFALSE(submodule)){
+      tsvname <- paste("7_heatmap_", module, ".tsv", sep = "")
+    } else {
+      tsvname <- paste("7_heatmap_", module, "_", submodule, ".tsv", sep = "")
+    }
+    
+    write.table(out, file=tsvname, sep = "\t")
+  }
 }
 
 #' This function converts the geneIDs data to gene names
@@ -885,20 +1474,20 @@ heatmapTopConnectivity <- function(module, submodule, number_lnc_pc = FALSE, TOM
 geneIDtoGeneName <- function(allDegreesBootstrap, differentialExpression, ncData){
   #This function takes the alldegres, deg, and ncData, and returns a list of
   #dataframes with gene names
-
+  
   allgenes <- unique(allDegreesBootstrap$gene_id, differentialExpression$Transcript_ID)
   coding <- setdiff(allgenes, ncData$gene_id)
   noncoding <- ncData[ncData$gene_id %in% allgenes, ]
   temp <- which(noncoding$gene_name == "nan")
   noncoding$gene_name[temp] <- noncoding$gene_id[temp]
-
-
+  
+  
   coding <- gprofiler2::gconvert(query = coding, organism = "hsapiens", filter_na = TRUE)
   coding <- coding[, c("input", "name")]
   names(coding) <- c("gene_id", "gene_name")
   temp <- which(coding$gene_name == "nan")
   coding$gene_name[temp] <- coding$gene_id[temp]
-
+  
   all <- rbind(coding, noncoding[,c(1,3)])
   summlist <- list(coding, noncoding, all)
   temp <- apply(coding, 1, function(x) if(x[2] == "nan"){x[2] <- "addd"})
@@ -972,7 +1561,7 @@ pickSoftThresholdPlot <- function(datExpr, filename, blocksize = 10000){
        main = paste("Mean connectivity"))
   graphics::text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=cex1,col="red")
   grDevices::dev.off()
-
+  
 }
 
 #Remove it? What it does?
@@ -1048,7 +1637,7 @@ stabilityRatioPlot <- function(modGroups, bootstrap, filename){
     sigs <- c(sigs, sig)
   }
   names(sigs) <- colnames(bootstrap)
-
+  
   #make the plot
   seqs <- seq(0,1,0.1)
   cumulativeSig <- unlist(lapply(seqs, function(x) sum(sigs < x)))
@@ -1133,55 +1722,6 @@ moduleStability <- function(bootstrap, filename){ #This function takes the boots
   return(modGroups)
 }
 
-#' This function does the reduction of the module enrichment, and returns a figure
-#'
-#' @param rrvgolist enrichment summarized table
-#' @param summdf summarized table
-#' @param datExpr count data
-#' @param traits tumor/non-tumor
-#' @param filename file name
-#' @export
-saveEnrichedGraph <- function(rrvgolist, summdf, datExpr, traits, filename){
-  genesToSel <- summdf[summdf$cutBootstrap, c("module", "gene_id")]
-  datExprBoots <- datExpr[, colnames(datExpr) %in% genesToSel$gene_id]
-  #The function creates a treemap plot for the reduced enrichment of each module, and save as a unique png
-  vplayout <- function(x, y) grid::viewport(layout.pos.row = x, layout.pos.col = y)
-  ngraphs <- length(rrvgolist) #number of graphs
-  sizgraphs <- ceiling(sqrt(length(rrvgolist))) #number of rows/columns
-  grDevices::png(filename = filename, width=800*sizgraphs, height=800*sizgraphs) #Each graph should have 600x600px
-  grid::pushViewport(grid::viewport(layout = grid.layout(sizgraphs,sizgraphs))) #Prepare the environment
-  counter <- 1 #The order of each module in the list
-  for(i in 1:sizgraphs){
-    for(j in 1:sizgraphs){
-      if(counter < ngraphs + 1){
-        module <- names(rrvgolist[counter])
-        genes_in_mod <- genesToSel$module == module
-        MEs0 = WGCNA::moduleEigengenes(datExprBoots, as.numeric(genes_in_mod))$eigengenes
-        MEs = WGCNA::orderMEs(MEs0)
-        moduleTraitCor = WGCNA::cor(MEs, traits, use = "p")
-        moduleTraitPvalue = WGCNA::corPvalueStudent(moduleTraitCor, nrow(datExpr))
-        tcorr = moduleTraitCor[[2]]
-        tp = moduleTraitPvalue[[2]]
-        #Plot the graph based on the GO score term, vp is the position in the figure.
-        rrvgo::treemapPlot(rrvgolist[[counter]], size="score",
-                           # title = paste("Reduced enrichment of module", names(rrvgolist[counter]), "(lncRNAs over median connectivity)"),
-                           title = paste("Module",
-                                         module,
-                                         "(corr.:",
-                                         format(tcorr, scientific = F, digits = 2),
-                                         ", pValue: ",
-                                         ifelse(tp > 0.0099, format(tp, scientific = F, digits = 2), format(tp, scientific = T, digits = 2)),
-                                         ")"),
-                           vp=vplayout(i,j),
-                           fontsize.title = 22,
-                           fontsize.labels = 14
-        )
-      }
-      counter <- counter + 1
-    }
-  }
-  grDevices::dev.off()
-}
 
 #' This function downloads a gtf table of some genome annotation, using a URL link provided by the user
 #'
@@ -1199,120 +1739,6 @@ downloadGeneName <- function(link){
   return(data)
 }
 
-#' This function takes several informations and summarizes it in a dataframe
-#'
-#' @param allDegrees connectivity
-#' @param modules gene modules
-#' @param bootstrapStability module stability genes
-#' @param cutBootstrap filter module stability genes
-#' @param ncGeneNames annotation non coding
-#' @param cGeneNames annotation coding
-#' @param datExpression DEG data
-#' @export
-summarizeData <- function(allDegrees, modules, bootstrapStability, cutBootstrap, ncGeneNames, cGeneNames, datExpression){
-  #The function takes all the data and reduces it to a single data frame
-
-  module <- modules
-  #Bootstrap
-  if(!isFALSE(bootstrapStability)){
-    cutBootstrap <- as.vector(bootstrapStability > cutBootstrap/100)
-  } else{
-    cutBootstrap <- rep(TRUE, ncol(bootstrapStability))
-  }
-
-  #geneNames
-  #I need to check the number of genes, if all genes are named here
-  ncGeneNames$is_nc <- TRUE
-  cGeneNames$is_nc <- FALSE
-  geneNames <- rbind(ncGeneNames, cGeneNames)
-  geneNames <- geneNames[geneNames$gene_id %in% rownames(allDegrees),]
-  geneNames <- geneNames[match(rownames(allDegrees), geneNames$gene_id),]
-
-  #datExpression
-  datDE <- datExpression[datExpression$Transcript_ID %in% rownames(allDegrees),]
-  noDE <- rownames(allDegrees)[!rownames(allDegrees) %in% datDE$Transcript_ID]
-  noDE <- cbind(noDE, matrix(data = NA, nrow = length(noDE), ncol = ncol(datExpression)-1))
-  colnames(noDE) <- colnames(datExpression)
-  datDE <- rbind(datDE, noDE)
-  datDE <- datDE[match(rownames(allDegrees), datDE$Transcript_ID),]
-  datDE <- apply(datDE[,2:ncol(datDE)], 2, as.numeric)
-
-  summdf <- cbind(geneNames, module, cutBootstrap, allDegrees, datDE)
-
-  return(summdf)
-}
-
-#' This function adds the reduced enrichment analysis to a summarized dataframe
-#'
-#' @param summdf summarized table
-#' @param rrvgolist enrichment summarized table
-#' @param listgprof enriched table
-#' @export
-summarizeSubmodules <- function(summdf, rrvgolist, listgprof){
-  #submodules
-  ncluster <- 0
-  for(modname in names(rrvgolist)){
-    n <- max(rrvgolist[[modname]]$cluster)
-    if(n > ncluster){
-      ncluster <- n
-    }
-  }
-  list_submodule <- vector(mode = "list", length = ncluster)
-  for(modname in names(rrvgolist)){
-    reducedmod <- unique(rrvgolist[[modname]][,"cluster"])
-    for(term in reducedmod){
-      go <- rrvgolist[[modname]][rrvgolist[[modname]]$cluster == term, "go"]
-      submodule <- listgprof[[modname]][["result"]][listgprof[[modname]][["result"]]$term_id %in% go, "intersection"]
-      submodule_genes <- unique(unlist(strsplit(submodule, ",")))
-      list_submodule[[term]] <- c(list_submodule[[term]], submodule_genes)
-    }
-  }
-  falses <- rep(FALSE, nrow(summdf))
-  falsedf <- data.frame(rep(list(rep(FALSE, nrow(summdf))), length(list_submodule)))
-  colnames(falsedf) <- as.character(1:length(list_submodule))
-  summdf <- cbind(summdf, falsedf)
-  for(element in 1:length(list_submodule)){
-    genesinterm <- summdf$gene_id %in% list_submodule[[element]]
-    summdf[, as.character(element)] <- summdf[, as.character(element)] | genesinterm
-  }
-
-  return(summdf)
-}
-
-#' This function does the gprofiler enrichment analysis over each module
-#'
-#' @param summdf summarized table
-#' @export
-enrichList <- function(summdf){
-  #The function takes the connectivity dataframe(allDegreesBootstrap) and
-  #the background genes, do the gprofiler enrichment analysis for each module
-  #and returns a list of enriched dataframes.
-
-  #TODO: accept private databases
-  #takes background by allDegrees
-
-
-  background <- summdf[summdf$cutBootstrap, ]$gene_id
-
-  listgprof <- list()
-  for(mod in sort(unique(summdf$module))){
-    if(mod != 0){
-      query <- summdf[summdf$module == mod & summdf$cutBootstrap,]
-      query <- query[order(query$kWithin, decreasing = TRUE), ]$gene_id
-      # gostres <- gost(query = query,
-      #                 organism = "hsapiens", ordered_query = TRUE,
-      #                 significant = TRUE, evcodes = TRUE,
-      #                 user_threshold = 0.05, custom_bg = background,
-      #                 sources = c("GO:BP", "KEGG", "REAC", "WP"))
-      gostres <- gprofiler2::gost(query = query, evcodes = TRUE, multi_query = FALSE,
-                                  user_threshold = 0.05, custom_bg = background,
-                                  ordered_query = TRUE,
-                                  sources = c("GO:BP"))
-      listgprof[[as.character(mod)]] <- gostres
-    }
-  }
-  return(listgprof)
-}
 
 #' This function returns a barplot correlating the eingengene modules with the trait studied
 #'
@@ -1322,27 +1748,27 @@ enrichList <- function(summdf){
 #' @param filename file name
 #' @export
 stackedBarplot <- function(summdf, datExpr, traits, filename){
-
+  
   #This function takes the count dataset datExpr, the connectivity matrix
   #genesToSel, non coding data file ncdata
   #and the trait vector y, and returns a barplot figure,
   #correlating the eingengene modules with the trait
-
+  
   #Set some variable as null to have binding and avoid check errors
   Module <- nGenes <- moduleClasses <- correlationPos <- correlationNeg <- NULL
-
+  
   #Prepare genesToSel
   genesToSel <- summdf[summdf$cutBootstrap, c("module", "gene_id")]
-
+  
   #First step, make stackedbar df, based on genesToSel
   stacked_bar <- as.data.frame(matrix(nrow = 0, ncol = 4))
-
+  
   #Filter datExpr by bootstrap
   datExprBoots <- datExpr[, colnames(datExpr) %in% genesToSel$gene_id]
-
+  
   #set nc_data
   ncData <- summdf[summdf$is_nc, ]
-
+  
   #Making a list of modules and protein coding transcripts pc,
   #non coding nc, modules and correlations between traits and modules
   stacked_bar_data <- list("module"=NULL, "nc"=NULL, "pc"=NULL, "corr"=NULL)
@@ -1363,13 +1789,13 @@ stackedBarplot <- function(summdf, datExpr, traits, filename){
       if(moduleTraitPvalue[2,] > 0.05){corr <- 0}
       stacked_bar_data[["corr"]] <- c(stacked_bar_data[["corr"]], corr)
     }
-
+    
   }
-
+  
   #The list should ber ordered by correlation
   corr_order <- order(stacked_bar_data[["corr"]])
   stacked_bar_data <- lapply(stacked_bar_data, "[", corr_order)
-
+  
   #Tyding the list in ggplot format in gplot_df
   stacked_bar_datal <- list()
   stacked_bar_datal[["Module"]] <- rep(paste("Module", stacked_bar_data[["module"]]), 2)
@@ -1377,10 +1803,10 @@ stackedBarplot <- function(summdf, datExpr, traits, filename){
   stacked_bar_datal[["geneType"]] <- c(rep("lnc", length(stacked_bar_data[["nc"]])),
                                        rep("pc", length(stacked_bar_data[["nc"]])))
   stacked_bar_datal[["correlation"]] <- rep(stacked_bar_data[["corr"]], 2)
-
+  
   gplot_df <- as.data.frame(do.call("cbind", stacked_bar_datal))
-
-
+  
+  
   #Setting the data format, and creating pos and neg correlation,
   #to give differents points format
   gplot_df$Module <- factor(gplot_df$Module,
@@ -1393,16 +1819,16 @@ stackedBarplot <- function(summdf, datExpr, traits, filename){
   temp <- max(gplot_df$nGenes) * gplot_df$correlation
   temp[temp >= 0] <- NA
   gplot_df$correlationNeg <- abs(temp)
-
+  
   #Setting multiple variables to color
   stacked_modules <- stacked_bar_data$module
   modulepc <- paste("pc Module ", stacked_modules)
   modulenc <- rep("lnc", length(stacked_modules))
   gplot_df$moduleClasses <- c(modulenc, modulepc)
-
+  
   #getting colorvector
   stacked_colors <- c("grey", labels2colors(sort(stacked_modules)))
-
+  
   #plotting and saving as
   base_plot_colors <- ggplot2::ggplot(gplot_df, aes(x=Module)) +
     ggplot2::geom_bar(aes(y=nGenes, fill=moduleClasses), stat="identity") +
@@ -1417,151 +1843,8 @@ stackedBarplot <- function(summdf, datExpr, traits, filename){
     ggplot2::theme(legend.position = "none", text = element_text(size=20),
                    plot.title = element_text(hjust = 0.5),
                    axis.title=element_text(size=16))
-
+  
   grDevices::png(filename=filename, width = 1000, height = 600)
   print(base_plot_colors)
   grDevices::dev.off()
 }
-
-#' This function performs the rrvgo enrichment summarization of the module enrichment analysis
-#'
-#' @param listgprof enriched table
-#' @param summdf summarized table
-#' @param datExpr count data
-#' @param indicePower beta-value
-#' @export
-reduceEnrichment <- function(listgprof, summdf, datExpr, indicePower){
-  #The function takes a list of gprofiler dataframe, and applies rrvgo functions
-  #to cluster the ontologies and make it simpler to analyse. It returns a list
-  #of dataframes with the clustered pathways
-
-  adjacencyMatrix <- abs(cor(datExpr))^indicePower
-
-  ncData <- summdf[summdf$cutBootstrap & summdf$is_nc, c("gene_id", "gene_name")]
-  nc_id <- NA
-  allDegreesBootstrap <- summdf[summdf$cutBootstrap, c("gene_id", "module")]
-
-  convert_id_nc <- function(ncData, nc_id){
-    if(length(nc_id) == 1){
-      if(nc_id %in% ncData$gene_id){
-        return(ncData[ncData$gene_id == nc_id, "gene_name"])
-      } else {
-        return(nc_id)
-      }
-    } else {
-      result <- c()
-      for(i in nc_id){
-        if(i %in% ncData$gene_id){
-          result <- c(result, ncData[ncData$gene_id == i, "gene_name"])
-        } else {
-          result <- c(result, i)
-        }
-      }
-      return(result)
-    }
-  }
-
-  rrvgolist <- list()
-  for(name in names(listgprof)){
-
-    if(name != '0' & nrow(listgprof[[name]]$result) > 1){
-
-      go_analysis <- listgprof[[name]]$result
-
-      simMatrix <- rrvgo::calculateSimMatrix(go_analysis$term_id,
-                                             orgdb="org.Hs.eg.db",
-                                             ont="BP",
-                                             method="Rel")
-
-      scores <- stats::setNames(-log10(go_analysis$p_value), go_analysis$term_id)
-      reducedTerms <- rrvgo::reduceSimMatrix(simMatrix,
-                                             scores,
-                                             threshold=0.7,
-                                             orgdb="org.Hs.eg.db")
-
-
-      clustered_genes <- merge(go_analysis[,c("term_id", "intersection")], reducedTerms[,c("go", "parentTerm", "cluster")], by = 1)
-
-      intersections <- list()
-      for (cluster in unique(clustered_genes$cluster)) {
-        intersections[[cluster]] <- unique(unlist(strsplit(unlist(paste(unlist(clustered_genes[clustered_genes$cluster == cluster, "intersection"]), sep = ",")), ",")))
-      }
-
-      #Genes is noncoding
-      genes_in_module <- summdf[summdf$module == name, ]$gene_id
-      nc_in_module <- ncData[ncData$gene_id %in% genes_in_module, "gene_id"]
-
-      #loop in submodule?
-      mod_adj <- adjacencyMatrix[summdf$gene_id %in% unique(unlist(intersections)), summdf$gene_id %in% nc_in_module]
-
-      #get module kwithin median
-      median_kwithin_submod <- vector()
-
-      for(submodule in seq(1, length(intersections))){
-        submod_adj <- adjacencyMatrix[summdf$gene_id %in% intersections[[submodule]],summdf$gene_id %in% intersections[[submodule]]]
-        kwithin_submodule_genes <- apply(submod_adj, 2, sum) - 1
-        median_kwithin <- stats::median(kwithin_submodule_genes)
-        median_kwithin_submod[as.character(submodule)] <- median_kwithin
-      }
-
-      #for each submodule, subset the module adj dataframe and find the lncrnas submodule kwithin/submodule
-      nc_kwithin_submod_list <- list()
-
-      for(submodule in seq(1, length(intersections))){
-        submod_adj <- mod_adj[rownames(mod_adj) %in% intersections[[submodule]],]
-        nc_kwithin_submod <- apply(submod_adj, 2, sum)
-        nc_kwithin_submod_list[[submodule]] <- nc_kwithin_submod
-      }
-
-      nc_kwithin_submod_df <- as.data.frame(nc_kwithin_submod_list)
-      colnames(nc_kwithin_submod_df) <- seq(1, length(intersections))
-      nc_kwithin_submod_df <- t(nc_kwithin_submod_df)
-
-      #compare each kwithin(median_kwithin_submod) with
-      #the median connectivity of each submodule (nc_kwithin_submod_df)
-      lnc_over_median_kwithin <- list()
-
-      for(submodule in seq(1, length(intersections))){
-        lnc_over_median <- which(nc_kwithin_submod_df[submodule,] > median_kwithin_submod[as.character(submodule)])
-        if(!length(names(lnc_over_median)) == 0){
-          lnc_over_median_kwithin[[as.character(submodule)]] <- names(lnc_over_median)
-        } else {
-          lnc_over_median_kwithin[[as.character(submodule)]] <- NA
-        }
-
-      }
-
-      pre_reduced_term <- lnc_over_median_kwithin[reducedTerms$cluster]
-      DE_genes <- summdf[abs(summdf$log2FoldChange.1) > 1 & summdf$padj.1 < 0.05, "gene_id"]
-      DE_genes <- DE_genes[!is.na(DE_genes)]
-
-      n_lnc <- lapply(pre_reduced_term, function(x) ifelse(is.na(x), 0, length(x)))
-      n_lnc <- lapply(n_lnc, unique)
-      id_lnc <- lapply(pre_reduced_term, paste, collapse = ", ")
-      name_lnc <- lapply(pre_reduced_term, function(x) convert_id_nc(ncData, x))
-      name_lnc <- lapply(name_lnc, paste, collapse = ", ")
-      n_de <- lapply(pre_reduced_term, function(x) sum(x %in% DE_genes))
-      n_de <- lapply(n_de, function(x) ifelse(x == 0 & length(x) == 1, 0, x))
-      ID_de0 <- lapply(pre_reduced_term, function(x) x[x %in% DE_genes])
-      ID_de <- lapply(ID_de0, function(x) ifelse(length(x) == 0, NA, paste(x, collapse = ", ")))
-      name_de <- lapply(ID_de0, function(x) convert_id_nc(ncData, x))
-      name_de <- lapply(name_de, function(x) ifelse(is.null(x), NA, paste(x, collapse = ", ")))
-
-      reducedTerms$number_lnc_highly_connected <- unlist(n_lnc)
-      reducedTerms$id_lnc_highly_connected <- id_lnc
-      reducedTerms$name_lnc_highly_connected <- name_lnc
-      reducedTerms$number_lnc_DE <- unlist(n_de)
-      reducedTerms$id_lnc_DE <- ID_de
-      reducedTerms$name_lnc_DE <- name_de
-
-
-      reducedTerms$parentTerm2 <- reducedTerms$parentTerm
-      reducedTerms$parentTerm <- paste(reducedTerms$cluster, " - ", reducedTerms$parentTerm, " (",n_de , "/", n_lnc, ")", sep = "" )
-
-      rrvgolist[[name]] <- reducedTerms
-    }
-
-  }
-  return(rrvgolist)
-}
-
